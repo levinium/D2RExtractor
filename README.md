@@ -73,9 +73,3 @@ D2RExtractor\
 
 **Settings** are stored in: `%AppData%\D2RExtractor\settings.json`
 **Manifests** are stored in: `<D2RPath>\data\.extraction_manifest.json`
-
----
-
-## CASC_FIND_DATA struct note
-
-The P/Invoke struct layout in `Native/CascLib.cs` targets modern CascLib builds (2.x+) with `CASC_MAX_PATH = 1024`. If you see garbled file names, the CascLib version you're using may use a different path length. Adjust the `CASC_MAX_PATH` constant and field offsets in `CascLib.cs` accordingly.
