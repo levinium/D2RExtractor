@@ -1,0 +1,8 @@
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\D2RExtractor.pdb
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\CascLib.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\D3DCompiler_47_cor3.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\PenImc_cor3.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\PresentationNative_cor3.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\vcruntime140_cor3.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\wpfgfx_cor3.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\D2RExtractor.exe
