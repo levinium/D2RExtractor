@@ -4,7 +4,7 @@ A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC gam
 
 ## Download
 
-👉 [Download Latest Version](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor/D2RExtractor-Compiled-Standalone.zip)
+👉 [Download Latest Version (Standalone Zipped Folder)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor/D2RExtractor-Compiled-Standalone.zip)
 
 ---
 
