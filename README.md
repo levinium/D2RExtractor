@@ -2,6 +2,10 @@
 
 A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC game archives for faster load times. Also lets you undo the extraction before game updates and easily re-apply the extraction after updating.
 
+## Download
+
+👉 [Download Latest Version](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor/D2RExtractor-Compiled-Standalone.zip)
+
 ---
 
 ## How it works
