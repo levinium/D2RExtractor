@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>D2RExtractor</AssemblyName>
+    <RootNamespace>D2RExtractor</RootNamespace>
+    <Version>1.0</Version>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\app.ico" />
+  </ItemGroup>
+
+  <!-- Bundle the native CascLib.dll — Link flattens it to the output root next to the exe -->
+  <ItemGroup>
+    <Content Include="Tools\CascLib.dll" Condition="Exists('Tools\CascLib.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>CascLib.dll</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>
