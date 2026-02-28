@@ -18,7 +18,7 @@ D2R normally loads assets from compressed CASC archives at runtime. By pre-extra
 
 This app automates that process for one or more D2R installations and keeps a manifest of every extracted file so the extraction can be fully reversed.
 
-This app is vibe coded (using Claude Code) and uses [Ladislav Zezula's native CascLib library](https://github.com/ladislav-zezula/CascLib) — the same engine that powers Ladik's CASC Viewer.
+This app is vibe coded (using Claude Code) and uses [Ladislav Zezula's native CascLib library](https://github.com/ladislav-zezula/CascLib) — the same engine that powers [Ladik's CASC Viewer](https://www.hiveworkshop.com/threads/ladiks-casc-viewer.331540/).
 
 ---
 
