@@ -20,6 +20,8 @@ public static class ManifestService
 
     private static readonly string SettingsPath = Path.Combine(SettingsDir, "settings.json");
 
+    private static readonly string PreferencesPath = Path.Combine(SettingsDir, "preferences.json");
+
     /// <summary>Loads the saved list of D2R installations. Returns an empty list if none saved yet.</summary>
     public static List<D2RInstallation> LoadInstallations()
     {
@@ -44,6 +46,31 @@ public static class ManifestService
         Directory.CreateDirectory(SettingsDir);
         string json = JsonConvert.SerializeObject(installations, Formatting.Indented);
         File.WriteAllText(SettingsPath, json);
+    }
+
+    /// <summary>Loads user preferences. Returns defaults if the file doesn't exist or is corrupt.</summary>
+    public static AppPreferences LoadPreferences()
+    {
+        if (!File.Exists(PreferencesPath))
+            return new AppPreferences();
+
+        try
+        {
+            string json = File.ReadAllText(PreferencesPath);
+            return JsonConvert.DeserializeObject<AppPreferences>(json) ?? new AppPreferences();
+        }
+        catch
+        {
+            return new AppPreferences(); // caller should log a warning
+        }
+    }
+
+    /// <summary>Saves user preferences to disk.</summary>
+    public static void SavePreferences(AppPreferences prefs)
+    {
+        Directory.CreateDirectory(SettingsDir);
+        string json = JsonConvert.SerializeObject(prefs, Formatting.Indented);
+        File.WriteAllText(PreferencesPath, json);
     }
 
     // -----------------------------------------------------------------------

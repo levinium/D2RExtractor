@@ -26,4 +26,12 @@ public class ExtractionManifest
     /// successful completion. Old manifests without this field deserialize to true (backward compat).
     /// </summary>
     public bool IsComplete { get; set; } = true;
+
+    /// <summary>
+    /// True when the international (locales) CASC prefix was extracted.
+    /// Null means this manifest was created before v1.01 — treat as false (not extracted).
+    /// IMPORTANT: Do NOT add a property initializer (= false or = null).
+    /// The field must deserialise as null when absent from old JSON so the sentinel works.
+    /// </summary>
+    public bool? InternationalExtracted { get; set; }
 }

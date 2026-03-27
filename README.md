@@ -2,14 +2,6 @@
 
 A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC game archives for faster load times. Also lets you undo the extraction before game updates and easily re-apply the extraction after updating.
 
-## Download
-
-👉 [Download Latest Version (Standalone Zipped Folder)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor/D2RExtractor-Compiled-Standalone.zip)
-
-## Guide
-
-👉 [Video Installation & Usage Guide (YouTube)](https://www.youtube.com/watch?v=SYKQdQK1_gQ)
-
 ---
 
 ## How it works
@@ -18,7 +10,7 @@ D2R normally loads assets from compressed CASC archives at runtime. By pre-extra
 
 This app automates that process for one or more D2R installations and keeps a manifest of every extracted file so the extraction can be fully reversed.
 
-This app is vibe coded (using Claude Code) and uses [Ladislav Zezula's native CascLib library](https://github.com/ladislav-zezula/CascLib) — the same engine that powers [Ladik's CASC Viewer](https://www.hiveworkshop.com/threads/ladiks-casc-viewer.331540/).
+This app uses Ladislav Zezula's native CascLib library — the same engine that powers Ladik's CASC Viewer.
 
 ---
 
@@ -26,7 +18,7 @@ This app is vibe coded (using Claude Code) and uses [Ladislav Zezula's native Ca
 
 ### Disk space
 
-Extraction writes ~40–45 GB of data per D2R installation. Ensure sufficient free space.
+Extraction writes ~40–45 GB of data per D2R installation. More if also extracting international files. Ensure sufficient free space.
 
 ---
 
@@ -44,8 +36,9 @@ Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
 
 1. Launch `D2RExtractor.exe`
 2. Click **+ Add Installation** and select your D2R base folder (the one containing the `Data` subfolder) - Repeat for any additional D2R folders.
-3. Click **Extract** — extraction runs in the background (can take as long as ~30–45 min depending on your hardware)
-4. Launch D2R with the "-direct -txt" command line options and enjoy faster load times.
+3. Click the **Gear** icon at the top right corner for settings. This allows for extraction of international files (multi-language dubbing) if needed.
+4. Click **Extract** — extraction runs in the background (can take as long as ~30–45 min depending on your hardware)
+5. Launch D2R with the "-direct -txt" command line options and enjoy faster load times.
 
 ### Before updating D2R
 

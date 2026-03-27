@@ -24,3 +24,7 @@ C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtract
 C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Release\net8.0-windows\D2RExtractor.genruntimeconfig.cache
 C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Release\net8.0-windows\ref\D2RExtractor.dll
 C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\bin\x64\Release\net8.0-windows\CascLib.dll
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Release\net8.0-windows\Views\SettingsWindow.baml
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Release\net8.0-windows\Views\SettingsWindow.g.cs
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Release\net8.0-windows\Views\ChangeLogWindow.baml
+C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Release\net8.0-windows\Views\ChangeLogWindow.g.cs
