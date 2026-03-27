@@ -129,9 +129,6 @@
 
         <!-- ══ Header ══ -->
         <Grid Grid.Row="0" Margin="0,0,0,12">
-        <TextBlock x:Name="VersionLabel"
-                   HorizontalAlignment="Right" VerticalAlignment="Top"
-                   Foreground="{StaticResource MutedBrush}" FontSize="11"/>
         <StackPanel>
             <TextBlock Text="D2R File Extractor"
                        FontSize="22" FontWeight="Bold"
@@ -151,6 +148,95 @@
                                FontSize="11" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
+        </StackPanel>
+        <!-- Top-right: version label + gear icon — placed AFTER content so it has higher Z-order
+             and receives mouse events even though both share the same Grid cell. -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+            <TextBlock x:Name="VersionLabel"
+                       Foreground="{StaticResource MutedBrush}" FontSize="11"
+                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <!-- Gear button is intentionally NOT bound to IsGearEnabled so the Change Log
+                 item remains accessible during extraction. Only the Settings MenuItem is
+                 conditionally disabled (via PlacementTarget binding below). -->
+            <Button x:Name="GearMenuButton"
+                    Padding="4,1" Cursor="Hand"
+                    ToolTip="Settings &amp; Change Log"
+                    Click="GearMenuButton_Click">
+                <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                           VerticalAlignment="Center"/>
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+                        <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <Button.ContextMenu>
+                    <!--
+                      IMPORTANT: ContextMenu is not part of the visual tree, so plain {Binding IsGearEnabled}
+                      will not resolve to the window's DataContext. Use PlacementTarget to reach it:
+                    -->
+                    <ContextMenu x:Name="GearContextMenu" Background="#252525" BorderBrush="#444">
+                        <ContextMenu.Template>
+                            <ControlTemplate TargetType="ContextMenu">
+                                <Border Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="1"
+                                        Padding="2">
+                                    <ItemsPresenter/>
+                                </Border>
+                            </ControlTemplate>
+                        </ContextMenu.Template>
+                        <ContextMenu.Resources>
+                            <Style TargetType="MenuItem">
+                                <Setter Property="Padding" Value="12,6"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="MenuItem">
+                                            <Border x:Name="Bd"
+                                                    Background="{TemplateBinding Background}"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsHighlighted" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#3A3A3A"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Opacity" Value="0.4"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ContextMenu.Resources>
+                        <MenuItem x:Name="SettingsMenuItem"
+                                  Foreground="#E0E0E0"
+                                  IsEnabled="{Binding PlacementTarget.DataContext.IsGearEnabled,
+                                      RelativeSource={RelativeSource Mode=FindAncestor,
+                                      AncestorType={x:Type ContextMenu}}}"
+                                  Click="SettingsMenuItem_Click">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Settings" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <MenuItem Header="📋  Change Log"
+                                  Foreground="#E0E0E0"
+                                  Click="ChangeLogMenuItem_Click"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
         </StackPanel>
         </Grid>
 

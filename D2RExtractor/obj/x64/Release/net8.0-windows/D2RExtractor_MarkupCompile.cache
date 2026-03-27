@@ -10,11 +10,11 @@ none
 false
 TRACE;RELEASE;NET;NET8_0;NETCOREAPP
 C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\App.xaml
-11407045341
+31326636223
 1-63505821
-101641122821
+13-486423070
 208948201730
-MainWindow.xaml;
+MainWindow.xaml;Views\ChangeLogWindow.xaml;Views\SettingsWindow.xaml;
 
 False
 

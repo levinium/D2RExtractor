@@ -23,10 +23,7 @@ public class D2RInstallation : INotifyPropertyChanged
     private int _filesExtracted;
     private int _totalFiles;
 
-    // Cached manifest completion state — set by RefreshState(bool? manifestIsComplete).
-    // null  → no manifest on disk  → Ready
-    // false → manifest exists, incomplete → Partial
-    // true  → manifest exists, complete   → Extracted
+    // Cached manifest completion state — set by RefreshState(...).
     private bool _isExtracted;
     private bool _isPartiallyExtracted;
 
@@ -171,16 +168,31 @@ public class D2RInstallation : INotifyPropertyChanged
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Updates the manifest completion state and refreshes all dependent UI properties.
-    /// Pass the result of <c>ManifestService.LoadManifest(this)?.IsComplete</c>:
-    ///   null  → no manifest on disk (Ready)
-    ///   false → manifest exists but incomplete (Partial — interrupted extraction)
-    ///   true  → manifest exists and complete (Extracted)
+    /// Updates the manifest state and refreshes all dependent UI properties.
     /// </summary>
-    public void RefreshState(bool? manifestIsComplete)
+    /// <param name="manifestIsComplete">
+    ///   null  → no manifest (Ready)
+    ///   false → manifest exists but incomplete (Partial — interrupted extraction)
+    ///   true  → manifest exists and complete
+    /// </param>
+    /// <param name="manifestInternationalExtracted">
+    ///   null or false → international files not extracted
+    ///   true          → international files extracted
+    /// </param>
+    /// <param name="internationalEnabled">
+    ///   Whether the "Extract international files" setting is currently on.
+    /// </param>
+    public void RefreshState(bool? manifestIsComplete, bool? manifestInternationalExtracted, bool internationalEnabled)
     {
-        _isExtracted = manifestIsComplete == true;
-        _isPartiallyExtracted = manifestIsComplete == false; // false but not null
+        // Fully extracted = base complete AND (int'l not required OR int'l done)
+        _isExtracted = manifestIsComplete == true
+                       && (!internationalEnabled || manifestInternationalExtracted == true);
+
+        // Partially extracted = interrupted extraction OR base done but int'l still needed
+        _isPartiallyExtracted = manifestIsComplete == false
+                                || (manifestIsComplete == true
+                                    && internationalEnabled
+                                    && manifestInternationalExtracted != true);
 
         OnPropertyChanged(nameof(IsExtracted));
         OnPropertyChanged(nameof(IsPartiallyExtracted));
@@ -189,7 +201,7 @@ public class D2RInstallation : INotifyPropertyChanged
 
         if (!IsExtracting)
         {
-            StatusText = _isExtracted        ? "Extracted"
+            StatusText = _isExtracted          ? "Extracted"
                        : _isPartiallyExtracted ? "Partial"
                        : "Ready";
         }

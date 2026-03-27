@@ -44,6 +44,16 @@ public class CascExtractorService
         @"data:data\local\"
     };
 
+    /// <summary>
+    /// CASC virtual-path prefix for international audio/dubbing files.
+    /// NOTE: Verify this prefix against an actual D2R install with language packs.
+    /// On first run, the enumeration logs all discovered prefixes — check the log to confirm.
+    /// </summary>
+    private static readonly string[] InternationalPrefixes =
+    {
+        @"data:locales\"
+    };
+
     // -----------------------------------------------------------------------
     // Extraction
     // -----------------------------------------------------------------------
@@ -59,6 +69,7 @@ public class CascExtractorService
     /// </summary>
     public ExtractionManifest Extract(
         D2RInstallation installation,
+        bool extractInternational,
         IProgress<ExtractionProgress>? progress,
         Action<string>? log,
         CancellationToken ct)
@@ -102,8 +113,11 @@ public class CascExtractorService
                 progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
             };
 
+            string[] prefixes = extractInternational
+                ? TargetPrefixes.Concat(InternationalPrefixes).ToArray()
+                : TargetPrefixes;
             var enumSw = System.Diagnostics.Stopwatch.StartNew();
-            foreach (var entry in CascLib.EnumerateFiles(hStorage, TargetPrefixes, ct, onScanProgress, onIndexBuildComplete, log))
+            foreach (var entry in CascLib.EnumerateFiles(hStorage, prefixes, ct, onScanProgress, onIndexBuildComplete, log))
                 files.Add(entry);
             enumSw.Stop();
 
@@ -144,9 +158,11 @@ public class CascExtractorService
                 if (destDir != null)
                     Directory.CreateDirectory(destDir);
 
-                ExtractSingleFile(hStorage, virtualPath, destPath, log);
+                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, log);
 
-                manifest.ExtractedFiles.Add(fsRelPath);
+                if (extracted)
+                    manifest.ExtractedFiles.Add(fsRelPath);
+
                 bytesProcessed += (long)fileSize;
                 processed++;
 
@@ -160,6 +176,7 @@ public class CascExtractorService
 
             manifest.IsComplete = true;
             manifest.TotalBytesExtracted = bytesProcessed;
+            manifest.InternationalExtracted = extractInternational;
             ManifestService.SaveManifest(installation, manifest);
             log?.Invoke($"Extraction complete. {processed:N0} files, {FormatBytes(bytesProcessed)} written.");
             return manifest;
@@ -170,14 +187,119 @@ public class CascExtractorService
         }
     }
 
-    private static void ExtractSingleFile(IntPtr hStorage, string virtualPath, string destPath, Action<string>? log)
+    /// <summary>
+    /// Extracts only the international (locales) CASC prefix and appends the results
+    /// to an existing complete manifest. Called when the base has already been extracted
+    /// but the international setting was enabled afterward.
+    /// </summary>
+    public ExtractionManifest ExtractInternationalOnly(
+        D2RInstallation installation,
+        ExtractionManifest existingManifest,
+        IProgress<ExtractionProgress>? progress,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        string installPath = installation.FolderPath;
+
+        log?.Invoke("Opening CASC storage for international files extraction…");
+        log?.Invoke("Opening CASC file index — this can take 2–3 minutes on first run, please wait…");
+        progress?.Report(new ExtractionProgress(0, 0, "", 0, 0, IsEnumerating: true));
+
+        if (!CascLib.CascOpenStorage(installPath, 0, out IntPtr hStorage) || hStorage == IntPtr.Zero)
+        {
+            int err = Marshal.GetLastWin32Error();
+            throw new InvalidOperationException(
+                $"CascOpenStorage failed (Win32 error {err}). " +
+                $"Ensure '{installPath}' is a valid D2R installation folder.");
+        }
+
+        try
+        {
+            var files = new List<(string VirtualPath, ulong FileSize)>();
+
+            Action<string>? onScanProgress = progress == null ? null : currentFile =>
+                progress.Report(new ExtractionProgress(
+                    files.Count, 0, currentFile, 0, 0, IsEnumerating: true));
+
+            Action<long> onIndexBuildComplete = elapsedMs =>
+            {
+                log?.Invoke($"File index opened in {elapsedMs / 1000.0:F1}s — scanning for international files…");
+                progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
+            };
+
+            foreach (var entry in CascLib.EnumerateFiles(hStorage, InternationalPrefixes, ct, onScanProgress, onIndexBuildComplete, log))
+                files.Add(entry);
+
+            ct.ThrowIfCancellationRequested();
+
+            // Zero files is not an error — this install may not have any language packs.
+            if (files.Count == 0)
+            {
+                log?.Invoke("No international files found in CASC storage — this installation may not have any language packs downloaded. Marking international extraction as complete.");
+                existingManifest.InternationalExtracted = true;
+                ManifestService.SaveManifest(installation, existingManifest);
+                return existingManifest;
+            }
+
+            log?.Invoke($"Found {files.Count:N0} international files to extract…");
+            progress?.Report(new ExtractionProgress(0, files.Count, "", 0, 0, IsEnumerating: false));
+
+            long totalBytes = files.Sum(f => (long)f.FileSize);
+            long bytesProcessed = 0;
+            int processed = 0;
+            int warnCount = 0;
+
+            foreach (var (virtualPath, fileSize) in files)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                string fsRelPath = StripCascNamespace(virtualPath);
+                string destPath = Path.Combine(installPath, fsRelPath);
+                string? destDir = Path.GetDirectoryName(destPath);
+                if (destDir != null)
+                    Directory.CreateDirectory(destDir);
+
+                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, log);
+                if (!extracted) warnCount++;
+
+                if (extracted)
+                    existingManifest.ExtractedFiles.Add(fsRelPath);
+
+                bytesProcessed += (long)fileSize;
+                processed++;
+
+                progress?.Report(new ExtractionProgress(
+                    processed, files.Count, virtualPath, bytesProcessed, totalBytes));
+
+                // Periodic flush — leave InternationalExtracted unchanged (still false/null) until completion.
+                if (processed % 500 == 0)
+                    ManifestService.SaveManifest(installation, existingManifest);
+            }
+
+            if (warnCount > 0)
+                log?.Invoke($"International extraction complete with {warnCount} file(s) skipped (not available in this installation).");
+
+            existingManifest.TotalBytesExtracted += bytesProcessed;
+            existingManifest.InternationalExtracted = true;
+            ManifestService.SaveManifest(installation, existingManifest);
+            log?.Invoke($"International extraction complete. {processed:N0} files, {FormatBytes(bytesProcessed)} written.");
+            return existingManifest;
+        }
+        finally
+        {
+            CascLib.CascCloseStorage(hStorage);
+        }
+    }
+
+    private static bool ExtractSingleFile(IntPtr hStorage, string virtualPath, string destPath, Action<string>? log)
     {
         if (!CascLib.CascOpenFile(hStorage, virtualPath, 0, CascLib.CASC_OPEN_BY_NAME, out IntPtr hFile)
             || hFile == IntPtr.Zero)
         {
             int err = Marshal.GetLastWin32Error();
             log?.Invoke($"  WARN: Could not open '{virtualPath}' (Win32 error {err}). Skipping.");
-            return;
+            return false;
         }
 
         try
@@ -187,7 +309,7 @@ public class CascExtractorService
             if (sizeLow == 0xFFFFFFFF && Marshal.GetLastWin32Error() != 0)
             {
                 log?.Invoke($"  WARN: Could not get size for '{virtualPath}'. Skipping.");
-                return;
+                return false;
             }
 
             long totalSize = ((long)sizeHigh << 32) | sizeLow;
@@ -195,7 +317,7 @@ public class CascExtractorService
             {
                 // Write empty file so it exists on disk.
                 File.WriteAllBytes(destPath, Array.Empty<byte>());
-                return;
+                return true;
             }
 
             const int ChunkSize = 1024 * 1024; // 1 MB chunks
@@ -218,6 +340,7 @@ public class CascExtractorService
         {
             CascLib.CascCloseFile(hFile);
         }
+        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -262,7 +385,7 @@ public class CascExtractorService
 
         // Remove now-empty directories for the three target prefixes.
         // Strip the CASC namespace prefix before building the filesystem path.
-        foreach (string prefix in TargetPrefixes)
+        foreach (string prefix in TargetPrefixes.Concat(InternationalPrefixes))
         {
             string fsPrefix = StripCascNamespace(prefix);
             string dir = Path.Combine(installation.FolderPath, fsPrefix.TrimEnd('\\'));

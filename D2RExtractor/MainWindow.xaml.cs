@@ -33,6 +33,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     // FIFO queue for sequential extraction — shared by single Extract and Extract All
     private readonly Queue<D2RInstallation> _extractQueue = new();
     private bool _extractQueueRunning;
+    private AppPreferences _preferences = new();
 
     // -----------------------------------------------------------------------
     // INotifyPropertyChanged — toolbar button state
@@ -46,11 +47,33 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public bool CanUndoAll    => _installations.Any(i => i.CanUndo);
     public bool CanCancelAll  => _installations.Any(i =>  i.IsExtracting || i.IsQueued);
 
+    /// <summary>True while any installation is extracting, undoing, or queued.</summary>
+    public bool IsAnyBusy => _installations.Any(i => i.IsBusy);
+
+    /// <summary>
+    /// Gear button context menu is always available; Settings item is disabled while any operation is running.
+    /// This property drives the Settings MenuItem IsEnabled binding.
+    /// </summary>
+    public bool IsGearEnabled => !IsAnyBusy;
+
     private void RefreshToolbarState()
     {
         OnPropertyChanged(nameof(CanExtractAll));
         OnPropertyChanged(nameof(CanUndoAll));
         OnPropertyChanged(nameof(CanCancelAll));
+        OnPropertyChanged(nameof(IsAnyBusy));
+        OnPropertyChanged(nameof(IsGearEnabled));
+    }
+
+    /// <summary>
+    /// Loads the current manifest for <paramref name="install"/> and calls RefreshState
+    /// with the current preferences. Use this everywhere instead of calling RefreshState directly.
+    /// </summary>
+    private void RefreshInstallState(D2RInstallation install)
+    {
+        var manifest = ManifestService.LoadManifest(install);
+        install.RefreshState(manifest?.IsComplete, manifest?.InternationalExtracted,
+            _preferences.ExtractInternationalFiles);
     }
 
     private void OnInstallationsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -78,7 +101,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         InitializeComponent();
         DataContext = this;
         var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
-        VersionLabel.Text = $"v{ver.Major}.{ver.Minor}";
+        VersionLabel.Text = $"v{ver.Major}.{ver.Minor:D2}";
         InstallationsList.ItemsSource = _installations;
         _installations.CollectionChanged += OnInstallationsChanged;
         LoadInstallations();
@@ -90,10 +113,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void LoadInstallations()
     {
+        _preferences = ManifestService.LoadPreferences();
+        // LoadPreferences() always returns a non-null AppPreferences (defaults on error).
+        // No null check needed; errors are silently swallowed inside LoadPreferences().
+
         var saved = ManifestService.LoadInstallations();
         foreach (var inst in saved)
         {
-            inst.RefreshState(ManifestService.LoadManifest(inst)?.IsComplete);
+            RefreshInstallState(inst);
             _installations.Add(inst);
         }
         Log("D2R Extractor ready. Loaded " + _installations.Count + " installation(s).");
@@ -140,7 +167,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         string name = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
         var install = new D2RInstallation { Name = name, FolderPath = folder };
-        install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+        RefreshInstallState(install);
         _installations.Add(install);
         Save();
 
@@ -216,7 +243,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _extractQueue.Clear();
         foreach (var i in remaining) _extractQueue.Enqueue(i);
         install.IsQueued = false;
-        install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+        RefreshInstallState(install);
         Log($"[{install.Name}] Dequeued.");
     }
 
@@ -238,7 +265,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath);
+        long diskRequired = _preferences.ExtractInternationalFiles
+            ? 70L * 1024 * 1024 * 1024   // ~70 GB (base ~45 GB + int'l ~25 GB estimate)
+            : 48L * 1024 * 1024 * 1024;  // ~48 GB base only
+        string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
         if (spaceWarning != null)
         {
             var proceed = MessageBox.Show(spaceWarning + "\n\nContinue anyway?",
@@ -250,10 +280,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ? "This installation has a partial extraction. The partial files will be cleaned up automatically before starting fresh.\n\n"
             : string.Empty;
 
+        string intlNote = _preferences.ExtractInternationalFiles
+            ? "International audio files (locales folder) will also be extracted.\n\n"
+            : string.Empty;
+
         var confirm = MessageBox.Show(
             partialNote +
             $"Extract D2R game files for:\n{install.FolderPath}\n\n" +
-            "This will extract approximately 40–45 GB of data and may take 30–45 minutes.\n\n" +
+            "This will extract approximately 45–70 GB of data (depending on whether international files are enabled) " +
+            "and may take 30–90 minutes.\n\n" +
+            intlNote +
             "IMPORTANT: Before updating D2R, use 'Undo Extraction' first.\n\nStart extraction?",
             "Confirm Extraction", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
@@ -310,7 +346,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (install.IsQueued && _pendingQueue.Remove(install))
         {
             install.IsQueued = false;
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
             Log($"[{install.Name}] Dequeued.");
             return;
         }
@@ -332,7 +368,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var install in _extractQueue.ToList())
         {
             install.IsQueued = false;
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
         }
         _extractQueue.Clear();
 
@@ -340,7 +376,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var install in _pendingQueue.ToList())
         {
             install.IsQueued = false;
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
         }
         _pendingQueue.Clear();
 
@@ -365,7 +401,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             $"Queue {targets.Count} installation(s) for extraction?\n\n" +
             string.Join("\n", targets.Select(i => $"  • {i.Name}{(i.IsPartiallyExtracted ? " (partial)" : "")}")) + "\n" +
             partialNote +
-            "\nEach extraction writes ~40–45 GB and takes 30–45 minutes.\n\n" +
+            "\nEach extraction writes ~45–70 GB (depending on settings) and takes 30–90 minutes.\n\n" +
             "IMPORTANT: Before updating D2R, use Undo All first.\n\nProceed?",
             "Confirm Extract All", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
@@ -375,7 +411,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         // then enqueue — the shared queue processor runs them one at a time.
         foreach (var install in targets)
         {
-            string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath);
+            long diskRequired = _preferences.ExtractInternationalFiles
+                ? 70L * 1024 * 1024 * 1024
+                : 48L * 1024 * 1024 * 1024;
+            string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
             if (spaceWarning != null)
             {
                 var skip = MessageBox.Show(
@@ -448,17 +487,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         try
         {
-            // If a partial extraction exists, clean it up before starting fresh.
-            if (install.IsPartiallyExtracted)
-            {
-                Log($"[{install.Name}] Partial extraction found — cleaning up before fresh extraction…");
-                install.StatusText = "Cleaning up…";
-                await Task.Run(() => _extractor.UndoExtraction(install, null,
-                    msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
-                install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
-                install.StatusText = "Starting…";
-            }
-
             var progress = new Progress<ExtractionProgress>(p =>
             {
                 install.IsEnumerating = p.IsEnumerating;
@@ -482,10 +510,38 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 }
             });
 
-            await Task.Run(() => _extractor.Extract(install, progress,
-                msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+            // Detect whether this is an international-only pass (base already extracted, int'l missing).
+            var currentManifest = ManifestService.LoadManifest(install);
+            bool isInternationalOnly =
+                currentManifest?.IsComplete == true
+                && _preferences.ExtractInternationalFiles
+                && currentManifest.InternationalExtracted != true;
 
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            if (isInternationalOnly)
+            {
+                Log($"[{install.Name}] Base already extracted — running international-only pass…");
+                install.StatusText = "Int'l extraction…";
+                await Task.Run(() => _extractor.ExtractInternationalOnly(install, currentManifest!, progress,
+                    msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+            }
+            else
+            {
+                // If a partial extraction exists, clean it up before starting fresh.
+                if (install.IsPartiallyExtracted)
+                {
+                    Log($"[{install.Name}] Partial extraction found — cleaning up before fresh extraction…");
+                    install.StatusText = "Cleaning up…";
+                    await Task.Run(() => _extractor.UndoExtraction(install, null,
+                        msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+                    RefreshInstallState(install);
+                    install.StatusText = "Starting…";
+                }
+
+                await Task.Run(() => _extractor.Extract(install, _preferences.ExtractInternationalFiles, progress,
+                    msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+            }
+
+            RefreshInstallState(install);
             install.Progress = 100;
             install.StatusText = "Extracted";
             Log($"[{install.Name}] Extraction complete.");
@@ -494,13 +550,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             Log($"[{install.Name}] Extraction cancelled.");
             install.StatusText = "Cancelled";
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
         }
         catch (Exception ex)
         {
             Log($"[{install.Name}] ERROR: {ex.Message}");
             install.StatusText = "Error";
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
         }
         finally
         {
@@ -534,7 +590,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await Task.Run(() => _extractor.UndoExtraction(install, progress,
                 msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
 
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
             install.Progress = 0;
             install.StatusText = "Ready";
             Log($"[{install.Name}] Undo complete.");
@@ -543,13 +599,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             Log($"[{install.Name}] Undo cancelled.");
             install.StatusText = "Cancelled";
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
         }
         catch (Exception ex)
         {
             Log($"[{install.Name}] ERROR during undo: {ex.Message}");
             install.StatusText = "Error";
-            install.RefreshState(ManifestService.LoadManifest(install)?.IsComplete);
+            RefreshInstallState(install);
         }
         finally
         {
@@ -568,6 +624,43 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ClearLog_Click(object sender, RoutedEventArgs e)
     {
         LogTextBox.Text = string.Empty;
+    }
+
+    // -----------------------------------------------------------------------
+    // Gear icon / Settings / Change Log
+    // -----------------------------------------------------------------------
+
+    private void GearMenuButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button btn && btn.ContextMenu != null)
+        {
+            btn.ContextMenu.PlacementTarget = btn;
+            btn.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            btn.ContextMenu.IsOpen = true;
+        }
+    }
+
+    private void SettingsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new Views.SettingsWindow(_preferences) { Owner = this };
+        if (win.ShowDialog() == true)
+        {
+            bool changed = win.Preferences.ExtractInternationalFiles != _preferences.ExtractInternationalFiles;
+            _preferences = win.Preferences;
+            ManifestService.SavePreferences(_preferences);
+            if (changed)
+            {
+                foreach (var install in _installations)
+                    RefreshInstallState(install);
+                RefreshToolbarState();
+                Log($"Settings saved. International extraction: {(_preferences.ExtractInternationalFiles ? "enabled" : "disabled")}.");
+            }
+        }
+    }
+
+    private void ChangeLogMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        new Views.ChangeLogWindow { Owner = this }.ShowDialog();
     }
 
     private void Log(string message) => AppendLog(message);
