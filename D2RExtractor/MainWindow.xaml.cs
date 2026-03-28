@@ -101,7 +101,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         InitializeComponent();
         DataContext = this;
         var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
-        VersionLabel.Text = $"v{ver.Major}.{ver.Minor:D2}";
+        VersionLabel.Text = $"v{ver.Major}.{ver.Minor}.{ver.Build}";
         InstallationsList.ItemsSource = _installations;
         _installations.CollectionChanged += OnInstallationsChanged;
         LoadInstallations();

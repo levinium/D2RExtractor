@@ -2,35 +2,83 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
+        Icon="/Resources/app.ico"
         Width="440" Height="220"
-        ResizeMode="NoResize"
+        MinWidth="360" MinHeight="200"
         WindowStartupLocation="CenterOwner"
         Background="#1A1A1A"
-        Foreground="#E0E0E0"
-        ShowInTaskbar="False">
+        ResizeMode="NoResize">
 
     <Window.Resources>
         <SolidColorBrush x:Key="AccentBrush"   Color="#C8A951"/>
-        <SolidColorBrush x:Key="Surface2Brush" Color="#2E2E2E"/>
         <SolidColorBrush x:Key="TextBrush"     Color="#E0E0E0"/>
         <SolidColorBrush x:Key="MutedBrush"    Color="#888888"/>
+        <SolidColorBrush x:Key="SurfaceBrush"  Color="#252525"/>
+        <SolidColorBrush x:Key="Surface2Brush" Color="#2E2E2E"/>
+    </Window.Resources>
 
-        <Style TargetType="Button">
-            <Setter Property="Foreground"      Value="{StaticResource TextBrush}"/>
-            <Setter Property="Background"      Value="{StaticResource Surface2Brush}"/>
-            <Setter Property="BorderBrush"     Value="#444"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding"         Value="16,6"/>
-            <Setter Property="FontSize"        Value="12"/>
-            <Setter Property="Cursor"          Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Text="Settings"
+                   FontSize="18" FontWeight="Bold"
+                   Foreground="{StaticResource AccentBrush}"
+                   Margin="0,0,0,12"/>
+
+        <!-- Options -->
+        <Border Grid.Row="1" BorderBrush="#333" BorderThickness="1" CornerRadius="4"
+                Background="{StaticResource SurfaceBrush}" Padding="14,12">
+            <StackPanel>
+                <CheckBox x:Name="InternationalCheckBox"
+                          Foreground="{StaticResource TextBrush}" FontSize="13"
+                          VerticalContentAlignment="Center">
+                    <TextBlock Text="Extract international files (multi-language audio)"
+                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
+                </CheckBox>
+                <TextBlock Text="Extracts the locales folder containing dubbed audio for all installed languages. Adds approximately 20-25 GB of additional data."
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           TextWrapping="Wrap" Margin="20,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Save" Width="80" Padding="12,6" Margin="0,0,8,0"
+                    Foreground="{StaticResource AccentBrush}"
+                    Background="#4A3A10" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1"
+                    Cursor="Hand" Click="SaveButton_Click">
+                <Button.Template>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3"
-                                Padding="{TemplateBinding Padding}">
+                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#5A4A18"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+            <Button Content="Cancel" Width="80" Padding="12,6"
+                    Foreground="{StaticResource TextBrush}"
+                    Background="{StaticResource Surface2Brush}" BorderBrush="#444" BorderThickness="1"
+                    Cursor="Hand" Click="CancelButton_Click">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -39,38 +87,8 @@
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-
-    <Grid Margin="20">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <!-- Section header -->
-        <TextBlock Grid.Row="0" Text="Extraction" FontSize="12" FontWeight="SemiBold"
-                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,10"/>
-
-        <!-- Settings content -->
-        <StackPanel Grid.Row="1">
-            <CheckBox x:Name="IntlCheckBox"
-                      Content="Extract international audio files (locales folder)"
-                      Foreground="{StaticResource TextBrush}"
-                      FontSize="12" Margin="0,0,0,6"/>
-            <TextBlock TextWrapping="Wrap" FontSize="11"
-                       Foreground="{StaticResource MutedBrush}" Margin="20,0,0,0"
-                       Text="When enabled, also extracts all installed language packs (international voice dubbing). This can add 15–25 GB of additional data per installation. Files not present in your installation are automatically skipped."/>
-        </StackPanel>
-
-        <!-- Buttons -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
-                    Margin="0,16,0,0">
-            <Button Content="OK"     Width="80" Margin="0,0,8,0" Click="OK_Click"/>
-            <Button Content="Cancel" Width="80" Click="Cancel_Click"/>
+                </Button.Template>
+            </Button>
         </StackPanel>
     </Grid>
 </Window>

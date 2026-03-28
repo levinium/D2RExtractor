@@ -175,6 +175,18 @@ internal static class CascLib
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool CascCloseFile(IntPtr hFile);
 
+    // CascGetStorageInfo — CASC_STORAGE_INFO_CLASS enum values
+    private const uint CascStorageLocalFileCount = 0;
+    private const uint CascStorageTotalFileCount = 1;
+
+    /// <summary>Queries information about an open CASC storage.</summary>
+    [DllImport(DllName, EntryPoint = "CascGetStorageInfo",
+        CallingConvention = CallingConvention.StdCall, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CascGetStorageInfo(
+        IntPtr hStorage, uint InfoClass, ref uint pvStorageInfo,
+        uint cbStorageInfo, ref uint pcbLengthNeeded);
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -187,6 +199,21 @@ internal static class CascLib
     }
 
     /// <summary>
+    /// Queries the total number of files in the CASC storage via CascGetStorageInfo.
+    /// Returns the count, or -1 if the query fails.
+    /// </summary>
+    internal static long GetTotalFileCount(IntPtr hStorage)
+    {
+        uint value = 0, needed = 0;
+        // Try TotalFileCount first, fall back to LocalFileCount.
+        if (CascGetStorageInfo(hStorage, CascStorageTotalFileCount, ref value, 4, ref needed) && value > 0)
+            return value;
+        if (CascGetStorageInfo(hStorage, CascStorageLocalFileCount, ref value, 4, ref needed) && value > 0)
+            return value;
+        return -1;
+    }
+
+    /// <summary>
     /// Enumerates all locally-available files in the storage whose virtual path begins with
     /// one of the given prefixes. Yields (virtualPath, fileSize) tuples.
     /// <para>
@@ -196,9 +223,9 @@ internal static class CascLib
     /// </para>
     /// <para>
     /// <b>DLL bug workaround:</b> this build of CascLib never returns <c>false</c> from
-    /// <c>CascFindNextFile</c> — it loops indefinitely. Enumeration is terminated via a
-    /// "dry spell" heuristic: after finding the first matching file, if
-    /// <c>DrySpellThreshold</c> consecutive non-matching entries are seen the scan stops.
+    /// <c>CascFindNextFile</c> — it loops indefinitely. Enumeration is bounded by querying
+    /// the total file count from <c>CascGetStorageInfo</c> (with a 10% safety margin).
+    /// A hard fallback cap is used if the file count query fails.
     /// </para>
     /// </summary>
     internal static IEnumerable<(string VirtualPath, ulong FileSize)> EnumerateFiles(
@@ -209,6 +236,27 @@ internal static class CascLib
         Action<long>? onIndexBuildComplete = null,
         Action<string>? onDiagnosticLog = null)
     {
+        // Query the total file count so we know when to stop, since CascFindNextFile
+        // never returns false in this DLL build.
+        long knownFileCount = GetTotalFileCount(hStorage);
+        const long FallbackHardCap = 30_000_000;
+        long iterationCap;
+
+        if (knownFileCount > 0)
+        {
+            // Pad by 10% to account for any discrepancy between the reported count
+            // and the actual number of entries the iterator visits.
+            iterationCap = knownFileCount + (knownFileCount / 10);
+            onDiagnosticLog?.Invoke(
+                $"CASC storage reports {knownFileCount:N0} files — iteration cap set to {iterationCap:N0}.");
+        }
+        else
+        {
+            iterationCap = FallbackHardCap;
+            onDiagnosticLog?.Invoke(
+                $"CascGetStorageInfo unavailable — using fallback cap of {FallbackHardCap:N0}.");
+        }
+
         var indexSw = System.Diagnostics.Stopwatch.StartNew();
         IntPtr hFind = CascFindFirstFile(hStorage, "*", out CASC_FIND_DATA findData, null);
         indexSw.Stop();
@@ -217,19 +265,8 @@ internal static class CascLib
 
         onIndexBuildComplete?.Invoke(indexSw.ElapsedMilliseconds);
 
-        // This DLL never returns false from CascFindNextFile — it loops indefinitely.
-        // Termination strategy: "dry spell" detection.
-        //   • After finding at least one matching file, count consecutive non-matching entries.
-        //   • Stop when that count reaches DrySpellThreshold (all real D2R data is clustered
-        //     early in the listing; a gap this large means we're past the real content).
-        //   • Before the first match, a hard cap prevents infinite spin if nothing ever matches.
-        const long DrySpellThreshold = 1_000_000;  // ~71 ms at 14M entries/sec — safe margin
-        const long PreMatchHardCap   = 20_000_000; // bail out if no match found in first 20M
-
-        long totalEntries          = 0;
-        long entriesSinceLastMatch = 0;
-        bool foundAnyMatch         = false;
-        var  sw                    = System.Diagnostics.Stopwatch.StartNew();
+        long totalEntries = 0;
+        var  sw           = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
@@ -239,6 +276,12 @@ internal static class CascLib
                     yield break;
 
                 totalEntries++;
+                if (totalEntries > iterationCap)
+                {
+                    onDiagnosticLog?.Invoke(
+                        $"CASC scan: iteration cap of {iterationCap:N0} reached — stopping enumeration.");
+                    break;
+                }
 
                 string? fname = findData.szFileName;
 
@@ -254,7 +297,6 @@ internal static class CascLib
                 }
 
                 // Try to match this entry.
-                bool yielded = false;
                 if (findData.bFileAvailable != 0 && !string.IsNullOrEmpty(fname))
                 {
                     // Normalize path separator: some CascLib builds return forward slashes.
@@ -264,32 +306,9 @@ internal static class CascLib
                         if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                         {
                             yield return (name, findData.FileSize);
-                            yielded = true;
                             break;
                         }
                     }
-                }
-
-                if (yielded)
-                {
-                    entriesSinceLastMatch = 0;
-                    foundAnyMatch = true;
-                }
-                else if (foundAnyMatch)
-                {
-                    if (++entriesSinceLastMatch >= DrySpellThreshold)
-                    {
-                        onDiagnosticLog?.Invoke(
-                            $"CASC scan: stopping — {DrySpellThreshold:N0} consecutive non-matching " +
-                            $"entries after last match (total scanned: {totalEntries:N0}).");
-                        break;
-                    }
-                }
-                else if (totalEntries >= PreMatchHardCap)
-                {
-                    onDiagnosticLog?.Invoke(
-                        $"CASC scan: aborting — no matches found in first {PreMatchHardCap:N0} entries.");
-                    break;
                 }
 
             } while (CascFindNextFile(hFind, out findData));
