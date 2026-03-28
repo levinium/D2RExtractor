@@ -1,14 +1,10 @@
 namespace D2RExtractor.Models;
 
 /// <summary>
-/// User-configurable application-level settings.
-/// Stored at %AppData%\D2RExtractor\preferences.json — separate from the installations list.
+/// User preferences persisted to %AppData%\D2RExtractor\preferences.json.
 /// </summary>
 public class AppPreferences
 {
-    /// <summary>
-    /// When true, the locales CASC prefix is extracted in addition to the base prefixes.
-    /// This includes international voice dubbing audio files.
-    /// </summary>
-    public bool ExtractInternationalFiles { get; set; } = false;
+    /// <summary>Whether to extract international audio/dubbing files (locales folder).</summary>
+    public bool ExtractInternationalFiles { get; set; }
 }

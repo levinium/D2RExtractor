@@ -1,5 +1,5 @@
 ﻿D2RExtractor
-1.1.0.0
+1.1.1.0
 
 winexe
 C#
@@ -10,11 +10,11 @@ none
 false
 TRACE;RELEASE;NET;NET8_0;NETCOREAPP
 C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\App.xaml
-11407045341
+31326636223
 1-63505821
-121690074917
+15-437470974
 208948201730
-MainWindow.xaml;
+MainWindow.xaml;Views\ChangeLogWindow.xaml;Views\SettingsWindow.xaml;
 
 False
 

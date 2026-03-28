@@ -5,27 +5,25 @@ namespace D2RExtractor.Views;
 
 public partial class SettingsWindow : Window
 {
-    public AppPreferences Preferences { get; }
+    /// <summary>The preferences snapshot — read this after ShowDialog() returns true.</summary>
+    public AppPreferences Preferences { get; private set; }
 
     public SettingsWindow(AppPreferences current)
     {
         InitializeComponent();
-        // Clone so Cancel can discard changes
+        // Clone so Cancel doesn't mutate the caller's copy.
         Preferences = new AppPreferences
         {
             ExtractInternationalFiles = current.ExtractInternationalFiles
         };
-        IntlCheckBox.IsChecked = Preferences.ExtractInternationalFiles;
+        InternationalCheckBox.IsChecked = Preferences.ExtractInternationalFiles;
     }
 
-    private void OK_Click(object sender, RoutedEventArgs e)
+    private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
-        Preferences.ExtractInternationalFiles = IntlCheckBox.IsChecked == true;
+        Preferences.ExtractInternationalFiles = InternationalCheckBox.IsChecked == true;
         DialogResult = true;
     }
 
-    private void Cancel_Click(object sender, RoutedEventArgs e)
-    {
-        DialogResult = false;
-    }
+    private void CancelButton_Click(object sender, RoutedEventArgs e) => Close();
 }

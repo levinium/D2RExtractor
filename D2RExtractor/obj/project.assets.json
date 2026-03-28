@@ -59,7 +59,7 @@
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
-    "version": "1.1.0",
+    "version": "1.1.1",
     "restore": {
       "projectUniqueName": "C:\\Users\\PC930623\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj",
       "projectName": "D2RExtractor",

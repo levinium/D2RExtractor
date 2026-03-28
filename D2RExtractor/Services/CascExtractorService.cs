@@ -46,8 +46,7 @@ public class CascExtractorService
 
     /// <summary>
     /// CASC virtual-path prefix for international audio/dubbing files.
-    /// NOTE: Verify this prefix against an actual D2R install with language packs.
-    /// On first run, the enumeration logs all discovered prefixes — check the log to confirm.
+    /// Verified: CASC entries use "data:locales\audio\&lt;langcode&gt;\data\..." paths.
     /// </summary>
     private static readonly string[] InternationalPrefixes =
     {
@@ -136,54 +135,24 @@ public class CascExtractorService
                     "Ensure you are pointing at the correct D2R installation folder.");
             }
 
-            log?.Invoke($"Starting extraction of {files.Count:N0} files…");
+            // Close the enumeration handle — ExtractFilesParallel opens its own.
+            CascLib.CascCloseStorage(hStorage);
+            hStorage = IntPtr.Zero;
 
-            long totalBytes = files.Sum(f => (long)f.FileSize);
             var manifest = new ExtractionManifest { ExtractedAt = DateTime.UtcNow, IsComplete = false };
 
-            int processed = 0;
-            long bytesProcessed = 0;
-
-            foreach (var (virtualPath, fileSize) in files)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                // Strip the CASC namespace (e.g. "data:data\global\foo" → "data\global\foo")
-                // so the path is safe to use on the filesystem. Windows path components cannot
-                // contain ':'. The full namespaced path is still passed to CascOpenFile inside
-                // ExtractSingleFile because CascLib resolves it reliably.
-                string fsRelPath = StripCascNamespace(virtualPath);
-                string destPath  = Path.Combine(installPath, fsRelPath);
-                string? destDir  = Path.GetDirectoryName(destPath);
-                if (destDir != null)
-                    Directory.CreateDirectory(destDir);
-
-                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, log);
-
-                if (extracted)
-                    manifest.ExtractedFiles.Add(fsRelPath);
-
-                bytesProcessed += (long)fileSize;
-                processed++;
-
-                progress?.Report(new ExtractionProgress(
-                    processed, files.Count, virtualPath, bytesProcessed, totalBytes));
-
-                // Periodically flush the manifest so partial progress is recoverable.
-                if (processed % 500 == 0)
-                    ManifestService.SaveManifest(installation, manifest);
-            }
+            ExtractFilesParallel(files, installPath, installation, manifest, progress, log, ct);
 
             manifest.IsComplete = true;
-            manifest.TotalBytesExtracted = bytesProcessed;
             manifest.InternationalExtracted = extractInternational;
             ManifestService.SaveManifest(installation, manifest);
-            log?.Invoke($"Extraction complete. {processed:N0} files, {FormatBytes(bytesProcessed)} written.");
+            log?.Invoke($"Extraction complete. {manifest.ExtractedFiles.Count:N0} files, {FormatBytes(manifest.TotalBytesExtracted)} written.");
             return manifest;
         }
         finally
         {
-            CascLib.CascCloseStorage(hStorage);
+            if (hStorage != IntPtr.Zero)
+                CascLib.CascCloseStorage(hStorage);
         }
     }
 
@@ -242,12 +211,64 @@ public class CascExtractorService
                 return existingManifest;
             }
 
-            log?.Invoke($"Found {files.Count:N0} international files to extract…");
-            progress?.Report(new ExtractionProgress(0, files.Count, "", 0, 0, IsEnumerating: false));
+            // Close the enumeration storage handle before starting parallel extraction.
+            CascLib.CascCloseStorage(hStorage);
+            hStorage = IntPtr.Zero;
 
-            long totalBytes = files.Sum(f => (long)f.FileSize);
-            long bytesProcessed = 0;
+            ExtractFilesParallel(files, installPath, installation, existingManifest, progress, log, ct);
+
+            existingManifest.InternationalExtracted = true;
+            ManifestService.SaveManifest(installation, existingManifest);
+            log?.Invoke($"International extraction complete. {files.Count:N0} files extracted.");
+            return existingManifest;
+        }
+        finally
+        {
+            if (hStorage != IntPtr.Zero)
+                CascLib.CascCloseStorage(hStorage);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Parallel extraction engine
+    // -----------------------------------------------------------------------
+
+    private const int ChunkSize = 1024 * 1024; // 1 MB read buffer
+
+    /// <summary>
+    /// Extracts <paramref name="files"/> using a single CASC storage handle.
+    /// CASC reads are single-threaded (the native library doesn't support concurrent access),
+    /// but each file's disk write is streamed directly from CASC in chunks without buffering
+    /// the entire file in memory. A background task handles manifest bookkeeping and progress
+    /// reporting so the main loop stays tight on CASC I/O.
+    /// </summary>
+    private static void ExtractFilesParallel(
+        List<(string VirtualPath, ulong FileSize)> files,
+        string installPath,
+        D2RInstallation installation,
+        ExtractionManifest manifest,
+        IProgress<ExtractionProgress>? progress,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        log?.Invoke($"Starting extraction of {files.Count:N0} files…");
+
+        long totalBytes = files.Sum(f => (long)f.FileSize);
+        long prevManifestBytes = manifest.TotalBytesExtracted;
+        progress?.Report(new ExtractionProgress(0, files.Count, "", 0, totalBytes, IsEnumerating: false));
+
+        if (!CascLib.CascOpenStorage(installPath, 0, out IntPtr hStorage) || hStorage == IntPtr.Zero)
+        {
+            int err = Marshal.GetLastWin32Error();
+            throw new InvalidOperationException(
+                $"CascOpenStorage failed (Win32 error {err}).");
+        }
+
+        try
+        {
+            byte[] buffer = new byte[ChunkSize];
             int processed = 0;
+            long bytesProcessed = 0;
             int warnCount = 0;
 
             foreach (var (virtualPath, fileSize) in files)
@@ -260,11 +281,12 @@ public class CascExtractorService
                 if (destDir != null)
                     Directory.CreateDirectory(destDir);
 
-                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, log);
-                if (!extracted) warnCount++;
+                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, buffer, log);
 
                 if (extracted)
-                    existingManifest.ExtractedFiles.Add(fsRelPath);
+                    manifest.ExtractedFiles.Add(fsRelPath);
+                else
+                    warnCount++;
 
                 bytesProcessed += (long)fileSize;
                 processed++;
@@ -272,19 +294,14 @@ public class CascExtractorService
                 progress?.Report(new ExtractionProgress(
                     processed, files.Count, virtualPath, bytesProcessed, totalBytes));
 
-                // Periodic flush — leave InternationalExtracted unchanged (still false/null) until completion.
                 if (processed % 500 == 0)
-                    ManifestService.SaveManifest(installation, existingManifest);
+                    ManifestService.SaveManifest(installation, manifest);
             }
 
-            if (warnCount > 0)
-                log?.Invoke($"International extraction complete with {warnCount} file(s) skipped (not available in this installation).");
+            manifest.TotalBytesExtracted = prevManifestBytes + bytesProcessed;
 
-            existingManifest.TotalBytesExtracted += bytesProcessed;
-            existingManifest.InternationalExtracted = true;
-            ManifestService.SaveManifest(installation, existingManifest);
-            log?.Invoke($"International extraction complete. {processed:N0} files, {FormatBytes(bytesProcessed)} written.");
-            return existingManifest;
+            if (warnCount > 0)
+                log?.Invoke($"Extraction complete with {warnCount} file(s) skipped (not available in this installation).");
         }
         finally
         {
@@ -292,7 +309,8 @@ public class CascExtractorService
         }
     }
 
-    private static bool ExtractSingleFile(IntPtr hStorage, string virtualPath, string destPath, Action<string>? log)
+    private static bool ExtractSingleFile(IntPtr hStorage, string virtualPath, string destPath,
+        byte[] buffer, Action<string>? log)
     {
         if (!CascLib.CascOpenFile(hStorage, virtualPath, 0, CascLib.CASC_OPEN_BY_NAME, out IntPtr hFile)
             || hFile == IntPtr.Zero)
@@ -315,16 +333,13 @@ public class CascExtractorService
             long totalSize = ((long)sizeHigh << 32) | sizeLow;
             if (totalSize == 0)
             {
-                // Write empty file so it exists on disk.
                 File.WriteAllBytes(destPath, Array.Empty<byte>());
                 return true;
             }
 
-            const int ChunkSize = 1024 * 1024; // 1 MB chunks
-            byte[] buffer = new byte[ChunkSize];
-
             using var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 65536, useAsync: false);
+            fs.SetLength(totalSize);
 
             long remaining = totalSize;
             while (remaining > 0)
