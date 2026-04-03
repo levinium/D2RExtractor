@@ -2,6 +2,10 @@
 
 A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC game archives for faster load times. Also lets you undo the extraction before game updates and easily re-apply the extraction after updating.
 
+[⬇️ Download D2RExtractor v1.1.2 (Standalone ZIP)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_1.1.2/D2RExtractor-Compiled-Standalone.zip)
+
+[YouTube Installation & Usage Guide](https://youtu.be/SYKQdQK1_gQ)
+
 ---
 
 ## How it works
@@ -19,6 +23,12 @@ This app uses Ladislav Zezula's native CascLib library — the same engine that 
 ### Disk space
 
 Extraction writes ~40–45 GB of data per D2R installation. More if also extracting international files. Ensure sufficient free space.
+
+### Steam installations
+
+Steam D2R installations (particularly after patch 3.1.2) may require CDN access for extraction. The app automatically detects when the standard CASC open fails and retries with CDN-enabled fallback. An internet connection may be required during extraction for these installations.
+
+If extraction still fails on Steam, check [CascLib issue #285](https://github.com/ladislav-zezula/CascLib/issues/285) for upstream fixes, and ensure you are using CascLib.dll 3.0 or newer.
 
 ---
 
@@ -43,7 +53,7 @@ Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
 ### Before updating D2R
 
 1. Click **Undo Extraction** — removes all extracted files using the saved manifest
-2. Update D2R normally via Battle.net
+2. Update D2R normally via your game launcher
 3. Re-extract after the update
 
 ---
