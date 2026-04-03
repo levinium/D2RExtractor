@@ -79,13 +79,7 @@ public class CascExtractorService
 
         log?.Invoke($"Opening CASC storage at: {installPath}");
 
-        if (!CascLib.CascOpenStorage(installPath, 0, out IntPtr hStorage) || hStorage == IntPtr.Zero)
-        {
-            int err = Marshal.GetLastWin32Error();
-            throw new InvalidOperationException(
-                $"CascOpenStorage failed (Win32 error {err}). " +
-                $"Ensure '{installPath}' is a valid D2R installation folder.");
-        }
+        IntPtr hStorage = CascLib.OpenStorageWithFallback(installPath, log);
 
         try
         {
@@ -175,13 +169,7 @@ public class CascExtractorService
         log?.Invoke("Opening CASC file index — this can take 2–3 minutes on first run, please wait…");
         progress?.Report(new ExtractionProgress(0, 0, "", 0, 0, IsEnumerating: true));
 
-        if (!CascLib.CascOpenStorage(installPath, 0, out IntPtr hStorage) || hStorage == IntPtr.Zero)
-        {
-            int err = Marshal.GetLastWin32Error();
-            throw new InvalidOperationException(
-                $"CascOpenStorage failed (Win32 error {err}). " +
-                $"Ensure '{installPath}' is a valid D2R installation folder.");
-        }
+        IntPtr hStorage = CascLib.OpenStorageWithFallback(installPath, log);
 
         try
         {
@@ -257,12 +245,7 @@ public class CascExtractorService
         long prevManifestBytes = manifest.TotalBytesExtracted;
         progress?.Report(new ExtractionProgress(0, files.Count, "", 0, totalBytes, IsEnumerating: false));
 
-        if (!CascLib.CascOpenStorage(installPath, 0, out IntPtr hStorage) || hStorage == IntPtr.Zero)
-        {
-            int err = Marshal.GetLastWin32Error();
-            throw new InvalidOperationException(
-                $"CascOpenStorage failed (Win32 error {err}).");
-        }
+        IntPtr hStorage = CascLib.OpenStorageWithFallback(installPath, log);
 
         try
         {

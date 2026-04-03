@@ -39,6 +39,10 @@ internal static class CascLib
     internal const uint CASC_OPEN_BY_CKEY = 0x00000002;
     internal const uint CASC_OPEN_BY_EKEY = 0x00000003;
 
+    // CascOpenStorageEx feature flags
+    internal const uint CASC_FEATURE_ONLINE = 0x00000400;
+    internal const uint CASC_FEATURE_FORCE_DOWNLOAD = 0x00001000;
+
     /// <summary>
     /// Data returned by CascFindFirstFile / CascFindNextFile.
     /// Layout matches CASC_FIND_DATA in CascLib.h (3.x) for x64:
@@ -100,6 +104,29 @@ internal static class CascLib
         public uint NameType;
     }
 
+    /// <summary>
+    /// Extended arguments for CascOpenStorageEx.
+    /// Layout matches CASC_OPEN_STORAGE_ARGS in CascLib.h (3.x) for x64.
+    /// String and function-pointer fields are marshaled as IntPtr so their lifetime
+    /// can be controlled explicitly (allocate with Marshal.StringToHGlobalAnsi, free after call).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CASC_OPEN_STORAGE_ARGS
+    {
+        public IntPtr Size;                  // size_t — set to Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>()
+        public IntPtr szLocalPath;           // LPCTSTR — path to storage directory
+        public IntPtr szCodeName;            // LPCTSTR — product code, or IntPtr.Zero for auto-detect
+        public IntPtr szRegion;              // LPCTSTR — region, or IntPtr.Zero
+        public IntPtr PfnProgressCallback;   // PFNPROGRESSCALLBACK — IntPtr.Zero (unused)
+        public IntPtr PtrProgressParam;      // void* — IntPtr.Zero
+        public IntPtr PfnProductCallback;    // PFNPRODUCTCALLBACK — IntPtr.Zero
+        public IntPtr PtrProductParam;       // void* — IntPtr.Zero
+        public uint dwLocaleMask;            // DWORD — locale mask; 0 for all
+        public uint dwFlags;                 // CASC_FEATURE_XXX flags
+        public IntPtr szBuildKey;            // LPCTSTR — IntPtr.Zero for auto-detect
+        public IntPtr szCdnHostUrl;          // LPCTSTR — IntPtr.Zero for default CDN
+    }
+
     /// <summary>Opens a CASC storage at the given path.</summary>
     /// <param name="szDataPath">Full path to the game folder (e.g. "C:\Program Files (x86)\Diablo II Resurrected").</param>
     /// <param name="dwLocaleMask">Locale mask; pass 0 for all locales.</param>
@@ -109,6 +136,16 @@ internal static class CascLib
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool CascOpenStorage(string szDataPath, uint dwLocaleMask, out IntPtr phStorage);
+
+    /// <summary>Opens a CASC storage with extended parameters (CDN fallback, online mode, etc.).</summary>
+    [DllImport(DllName, EntryPoint = "CascOpenStorageEx", CharSet = CharSet.Ansi,
+        CallingConvention = CallingConvention.StdCall, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CascOpenStorageEx(
+        string? szParams,
+        ref CASC_OPEN_STORAGE_ARGS pArgs,
+        [MarshalAs(UnmanagedType.Bool)] bool bOnlineStorage,
+        out IntPtr phStorage);
 
     /// <summary>Closes a CASC storage handle.</summary>
     [DllImport(DllName, EntryPoint = "CascCloseStorage",
@@ -190,6 +227,83 @@ internal static class CascLib
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Opens CASC storage with automatic fallback for installations where the standard
+    /// local-only open fails (e.g. Steam D2R after patch 3.1.2).
+    ///
+    /// Strategy:
+    ///   1. Try CascOpenStorage (local-only, works for Battle.net).
+    ///   2. If that fails, retry with CascOpenStorageEx + CASC_FEATURE_ONLINE (CDN fallback).
+    ///   3. If that also fails, retry with full online-storage mode as a last resort.
+    ///
+    /// Throws <see cref="InvalidOperationException"/> with a descriptive message if all
+    /// attempts fail, or if the DLL is too old to export CascOpenStorageEx.
+    /// </summary>
+    internal static IntPtr OpenStorageWithFallback(string installPath, Action<string>? log)
+    {
+        System.Diagnostics.Debug.Assert(
+            Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>() == 88,
+            $"CASC_OPEN_STORAGE_ARGS size mismatch: expected 88, got {Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>()}");
+
+        // --- Attempt 1: standard local-only open ---
+        if (CascOpenStorage(installPath, 0, out IntPtr hStorage) && hStorage != IntPtr.Zero)
+            return hStorage;
+
+        int firstError = Marshal.GetLastWin32Error();
+        log?.Invoke($"CascOpenStorage failed (Win32 error {firstError}). " +
+                    "Attempting CDN-enabled fallback via CascOpenStorageEx…");
+
+        // --- Attempt 2 & 3: CascOpenStorageEx with CDN fallback ---
+        IntPtr pLocalPath = IntPtr.Zero;
+        try
+        {
+            pLocalPath = Marshal.StringToHGlobalAnsi(installPath);
+
+            var args = new CASC_OPEN_STORAGE_ARGS();
+            args.Size = (IntPtr)Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>();
+            args.szLocalPath = pLocalPath;
+            args.dwFlags = CASC_FEATURE_ONLINE;
+
+            // Attempt 2: local storage with CDN-assisted metadata resolution.
+            if (CascOpenStorageEx(null, ref args, false, out hStorage) && hStorage != IntPtr.Zero)
+            {
+                log?.Invoke("CDN-enabled CASC storage opened successfully (local + CDN fallback).");
+                return hStorage;
+            }
+
+            int secondError = Marshal.GetLastWin32Error();
+            log?.Invoke($"CascOpenStorageEx (local + CDN) failed (Win32 error {secondError}). " +
+                        "Trying full online-storage mode…");
+
+            // Attempt 3: full online storage mode as last resort.
+            if (CascOpenStorageEx(null, ref args, true, out hStorage) && hStorage != IntPtr.Zero)
+            {
+                log?.Invoke("CASC storage opened in full online mode.");
+                return hStorage;
+            }
+
+            int thirdError = Marshal.GetLastWin32Error();
+            throw new InvalidOperationException(
+                $"All CASC open attempts failed — errors: {firstError}, {secondError}, {thirdError}. " +
+                $"Ensure '{installPath}' is a valid D2R installation folder. " +
+                "This may be a known issue with Steam D2R installations after patch 3.1.2. " +
+                "Check https://github.com/ladislav-zezula/CascLib/issues/285 for updates, " +
+                "and ensure you are using CascLib.dll 3.0 or newer.");
+        }
+        catch (EntryPointNotFoundException)
+        {
+            throw new InvalidOperationException(
+                $"CascOpenStorage failed (Win32 error {firstError}) and CascOpenStorageEx " +
+                "is not available in this CascLib.dll. Please update to CascLib.dll 3.0+ " +
+                "from https://github.com/ladislav-zezula/CascLib for improved compatibility.");
+        }
+        finally
+        {
+            if (pLocalPath != IntPtr.Zero)
+                Marshal.FreeHGlobal(pLocalPath);
+        }
+    }
 
     /// <summary>Returns true if CascLib.dll exists next to the executable.</summary>
     internal static bool IsDllPresent()

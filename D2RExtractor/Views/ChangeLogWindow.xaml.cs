@@ -21,6 +21,18 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.2", [
+            "Added CascOpenStorageEx fallback for D2R installations where the standard CascOpenStorage "
+                + "fails (e.g. Steam after patch 3.1.2). The app now automatically retries with CDN-enabled "
+                + "and full online-storage modes before reporting an error.",
+            "Added clear error messaging with a link to the upstream CascLib tracking issue when all "
+                + "CASC open attempts fail.",
+            "Graceful handling when CascOpenStorageEx is not available in older CascLib.dll versions, "
+                + "with guidance to update.",
+            "Temporarily disabled international file extraction (multi-language audio) due to the feature "
+                + "not working correctly. The option is grayed out in settings until a fix is available."
+        ]);
+
         AddEntry("1.1.1", [
             "Replaced CASC enumeration dry-spell heuristic with CascGetStorageInfo file count query. "
                 + "This fixes a potential issue where international (locales) files could be silently "

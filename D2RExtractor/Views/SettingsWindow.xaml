@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Icon="/Resources/app.ico"
-        Width="440" Height="220"
-        MinWidth="360" MinHeight="200"
+        Width="440" Height="240"
+        MinWidth="360" MinHeight="220"
         WindowStartupLocation="CenterOwner"
         Background="#1A1A1A"
         ResizeMode="NoResize">
@@ -36,12 +36,12 @@
             <StackPanel>
                 <CheckBox x:Name="InternationalCheckBox"
                           Foreground="{StaticResource TextBrush}" FontSize="13"
-                          VerticalContentAlignment="Center">
+                          VerticalContentAlignment="Center" IsEnabled="False">
                     <TextBlock Text="Extract international files (multi-language audio)"
-                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
                 </CheckBox>
-                <TextBlock Text="Extracts the locales folder containing dubbed audio for all installed languages. Adds approximately 20-25 GB of additional data."
-                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                <TextBlock Text="Temporarily disabled — international file extraction is not working correctly and is under investigation."
+                           Foreground="#CC8844" FontSize="11"
                            TextWrapping="Wrap" Margin="20,4,0,0"/>
             </StackPanel>
         </Border>

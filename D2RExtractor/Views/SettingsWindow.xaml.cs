@@ -14,14 +14,16 @@ public partial class SettingsWindow : Window
         // Clone so Cancel doesn't mutate the caller's copy.
         Preferences = new AppPreferences
         {
-            ExtractInternationalFiles = current.ExtractInternationalFiles
+            // International extraction is temporarily disabled (not working correctly).
+            ExtractInternationalFiles = false
         };
-        InternationalCheckBox.IsChecked = Preferences.ExtractInternationalFiles;
+        InternationalCheckBox.IsChecked = false;
     }
 
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
-        Preferences.ExtractInternationalFiles = InternationalCheckBox.IsChecked == true;
+        // International extraction is temporarily disabled — always save as false.
+        Preferences.ExtractInternationalFiles = false;
         DialogResult = true;
     }
 
