@@ -42,6 +42,7 @@ internal static class CascLib
     // CascOpenStorageEx feature flags
     internal const uint CASC_FEATURE_ONLINE = 0x00000400;
     internal const uint CASC_FEATURE_FORCE_DOWNLOAD = 0x00001000;
+    internal const uint CASC_FEATURE_ALLOW_DOWNLOAD = 0x00002000;
 
     /// <summary>
     /// Data returned by CascFindFirstFile / CascFindNextFile.
@@ -138,13 +139,17 @@ internal static class CascLib
     internal static extern bool CascOpenStorage(string szDataPath, uint dwLocaleMask, out IntPtr phStorage);
 
     /// <summary>Opens a CASC storage with extended parameters (CDN fallback, online mode, etc.).</summary>
+    /// <remarks>
+    /// The native signature uses C++ <c>bool</c> (1 byte) for <paramref name="bOnlineStorage"/>,
+    /// not Win32 <c>BOOL</c> (4 bytes). Marshal as <c>UnmanagedType.U1</c> to match.
+    /// </remarks>
     [DllImport(DllName, EntryPoint = "CascOpenStorageEx", CharSet = CharSet.Ansi,
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascOpenStorageEx(
         string? szParams,
         ref CASC_OPEN_STORAGE_ARGS pArgs,
-        [MarshalAs(UnmanagedType.Bool)] bool bOnlineStorage,
+        [MarshalAs(UnmanagedType.U1)] bool bOnlineStorage,
         out IntPtr phStorage);
 
     /// <summary>Closes a CASC storage handle.</summary>
@@ -232,7 +237,7 @@ internal static class CascLib
     /// Opens CASC storage with automatic fallback for installations where the standard
     /// local-only open fails (e.g. Steam D2R after patch 3.1.2).
     ///
-    /// Strategy:
+    /// Strategy — for each candidate path (game root, then Data subfolder):
     ///   1. Try CascOpenStorage (local-only, works for Battle.net).
     ///   2. If that fails, retry with CascOpenStorageEx + CASC_FEATURE_ONLINE (CDN fallback).
     ///   3. If that also fails, retry with full online-storage mode as a last resort.
@@ -246,63 +251,101 @@ internal static class CascLib
             Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>() == 88,
             $"CASC_OPEN_STORAGE_ARGS size mismatch: expected 88, got {Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>()}");
 
-        // --- Attempt 1: standard local-only open ---
-        if (CascOpenStorage(installPath, 0, out IntPtr hStorage) && hStorage != IntPtr.Zero)
-            return hStorage;
-
-        int firstError = Marshal.GetLastWin32Error();
-        log?.Invoke($"CascOpenStorage failed (Win32 error {firstError}). " +
-                    "Attempting CDN-enabled fallback via CascOpenStorageEx…");
-
-        // --- Attempt 2 & 3: CascOpenStorageEx with CDN fallback ---
-        IntPtr pLocalPath = IntPtr.Zero;
-        try
+        // CascLib looks for .build.info / .build.db / versions in the given path and
+        // walks UP parent directories — but not down into subfolders. Steam D2R may
+        // place CASC metadata in a subfolder, so we probe multiple candidate paths.
+        string[] candidatePaths = new[]
         {
-            pLocalPath = Marshal.StringToHGlobalAnsi(installPath);
+            installPath,
+            Path.Combine(installPath, "Data"),
+        };
 
-            var args = new CASC_OPEN_STORAGE_ARGS();
-            args.Size = (IntPtr)Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>();
-            args.szLocalPath = pLocalPath;
-            args.dwFlags = CASC_FEATURE_ONLINE;
-
-            // Attempt 2: local storage with CDN-assisted metadata resolution.
-            if (CascOpenStorageEx(null, ref args, false, out hStorage) && hStorage != IntPtr.Zero)
+        // Diagnostic: log which CASC metadata files exist at each candidate path.
+        foreach (string basePath in candidatePaths)
+        {
+            foreach (string file in new[] { ".build.info", ".build.db", ".product.db" })
             {
-                log?.Invoke("CDN-enabled CASC storage opened successfully (local + CDN fallback).");
+                string full = Path.Combine(basePath, file);
+                log?.Invoke($"  [{(File.Exists(full) ? "FOUND" : "missing")}] {full}");
+            }
+        }
+
+        // Track errors from all attempts for the final error message.
+        var errors = new List<string>();
+
+        foreach (string cascPath in candidatePaths)
+        {
+            // --- Attempt: standard local-only open ---
+            if (CascOpenStorage(cascPath, 0, out IntPtr hStorage) && hStorage != IntPtr.Zero)
+            {
+                if (cascPath != installPath)
+                    log?.Invoke($"CASC storage opened at alternate path: {cascPath}");
                 return hStorage;
             }
 
-            int secondError = Marshal.GetLastWin32Error();
-            log?.Invoke($"CascOpenStorageEx (local + CDN) failed (Win32 error {secondError}). " +
-                        "Trying full online-storage mode…");
+            int err = Marshal.GetLastWin32Error();
+            errors.Add($"CascOpenStorage('{cascPath}') → error {err}");
+            log?.Invoke($"CascOpenStorage failed for '{cascPath}' (Win32 error {err}).");
 
-            // Attempt 3: full online storage mode as last resort.
-            if (CascOpenStorageEx(null, ref args, true, out hStorage) && hStorage != IntPtr.Zero)
+            // --- Extended API attempts ---
+            // CascLib may write back into the args struct, so create a fresh
+            // one for each attempt. Path is passed via szParams (1st arg).
+            try
             {
-                log?.Invoke("CASC storage opened in full online mode.");
-                return hStorage;
-            }
+                // Attempt: ONLINE + ALLOW_DOWNLOAD — both flags are required.
+                // ALLOW_DOWNLOAD lets CascLib download missing metadata from CDN.
+                // ONLINE enables file data reads via CDN when files aren't local.
+                var args1 = MakeStorageArgs(CASC_FEATURE_ONLINE | CASC_FEATURE_ALLOW_DOWNLOAD);
+                log?.Invoke($"Trying CascOpenStorageEx with ONLINE+ALLOW_DOWNLOAD for '{cascPath}'…");
+                if (CascOpenStorageEx(cascPath, ref args1, false, out hStorage) && hStorage != IntPtr.Zero)
+                {
+                    log?.Invoke($"CASC storage opened successfully with CDN support at '{cascPath}'.");
+                    return hStorage;
+                }
 
-            int thirdError = Marshal.GetLastWin32Error();
-            throw new InvalidOperationException(
-                $"All CASC open attempts failed — errors: {firstError}, {secondError}, {thirdError}. " +
-                $"Ensure '{installPath}' is a valid D2R installation folder. " +
-                "This may be a known issue with Steam D2R installations after patch 3.1.2. " +
-                "Check https://github.com/ladislav-zezula/CascLib/issues/285 for updates, " +
-                "and ensure you are using CascLib.dll 3.0 or newer.");
+                err = Marshal.GetLastWin32Error();
+                errors.Add($"CascOpenStorageEx('{cascPath}', ONLINE+ALLOW_DOWNLOAD) → error {err}");
+                log?.Invoke($"CascOpenStorageEx (ONLINE+ALLOW_DOWNLOAD) failed for '{cascPath}' (Win32 error {err}).");
+
+                // Attempt: full online storage mode as last resort.
+                var args3 = MakeStorageArgs(CASC_FEATURE_ONLINE | CASC_FEATURE_ALLOW_DOWNLOAD);
+                if (CascOpenStorageEx(cascPath, ref args3, true, out hStorage) && hStorage != IntPtr.Zero)
+                {
+                    log?.Invoke($"CASC storage opened in full online mode at '{cascPath}'.");
+                    return hStorage;
+                }
+
+                err = Marshal.GetLastWin32Error();
+                errors.Add($"CascOpenStorageEx('{cascPath}', online) → error {err}");
+                log?.Invoke($"CascOpenStorageEx (online) failed for '{cascPath}' (Win32 error {err}).");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                errors.Add($"CascOpenStorageEx not exported (DLL too old)");
+                log?.Invoke("CascOpenStorageEx is not available in this CascLib.dll. " +
+                            "Please update to CascLib.dll 3.0+ for improved compatibility.");
+                // Don't retry extended API for remaining candidate paths.
+                break;
+            }
+            // No unmanaged allocations to free — struct uses only value types.
         }
-        catch (EntryPointNotFoundException)
-        {
-            throw new InvalidOperationException(
-                $"CascOpenStorage failed (Win32 error {firstError}) and CascOpenStorageEx " +
-                "is not available in this CascLib.dll. Please update to CascLib.dll 3.0+ " +
-                "from https://github.com/ladislav-zezula/CascLib for improved compatibility.");
-        }
-        finally
-        {
-            if (pLocalPath != IntPtr.Zero)
-                Marshal.FreeHGlobal(pLocalPath);
-        }
+
+        throw new InvalidOperationException(
+            "All CASC open attempts failed.\n" +
+            string.Join("\n", errors) + "\n\n" +
+            $"Ensure '{installPath}' is a valid D2R installation folder. " +
+            "This may be a known issue with Steam D2R installations after patch 3.1.2. " +
+            "Check https://github.com/ladislav-zezula/CascLib/issues/285 for updates, " +
+            "and ensure you are using CascLib.dll 3.0 or newer.");
+    }
+
+    /// <summary>Creates a zero-initialized CASC_OPEN_STORAGE_ARGS with Size and dwFlags set.</summary>
+    private static CASC_OPEN_STORAGE_ARGS MakeStorageArgs(uint dwFlags)
+    {
+        var args = new CASC_OPEN_STORAGE_ARGS();
+        args.Size = (IntPtr)Marshal.SizeOf<CASC_OPEN_STORAGE_ARGS>();
+        args.dwFlags = dwFlags;
+        return args;
     }
 
     /// <summary>Returns true if CascLib.dll exists next to the executable.</summary>
@@ -411,7 +454,9 @@ internal static class CascLib
                 }
 
                 // Try to match this entry.
-                if (findData.bFileAvailable != 0 && !string.IsNullOrEmpty(fname))
+                // Note: bFileAvailable may be 0 for CDN-based Steam installs where data
+                // isn't locally cached but is still extractable via CDN download.
+                if (!string.IsNullOrEmpty(fname))
                 {
                     // Normalize path separator: some CascLib builds return forward slashes.
                     string name = fname.Replace('/', '\\');

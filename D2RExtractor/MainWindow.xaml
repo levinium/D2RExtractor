@@ -148,6 +148,15 @@
                                FontSize="11" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
+
+            <!-- Steam CDN note -->
+            <Border Background="#1E1E2A" BorderBrush="#3A3A5A" BorderThickness="1" CornerRadius="3" Padding="10,6" Margin="0,4,0,0">
+                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap">
+                    <Run Text="Steam users:"/>
+                    <Run Text=" Extraction requires an internet connection — game data is downloaded from Blizzard's CDN."
+                         Foreground="#8888CC"/>
+                </TextBlock>
+            </Border>
         </StackPanel>
         <!-- Top-right: version label + gear icon — placed AFTER content so it has higher Z-order
              and receives mouse events even though both share the same Grid cell. -->

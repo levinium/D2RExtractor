@@ -21,6 +21,19 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.3", [
+            "Steam D2R support (patch 3.1.2+): Full extraction now works for Steam installations. "
+                + "Game data is downloaded from Blizzard's CDN during extraction, so an internet connection "
+                + "is required for Steam users.",
+            "Patched and rebuilt CascLib.dll with fixes for the Steam D2R CASC layout — "
+                + "fixed ONLINE flag propagation, added archive index loading for CDN-assisted storages, "
+                + "and enabled encoded size resolution from archive indices.",
+            "Added CascOpenStorageEx fallback with ONLINE + ALLOW_DOWNLOAD flags for both metadata "
+                + "and file data CDN downloads.",
+            "Added diagnostic logging of CASC metadata file presence for easier troubleshooting.",
+            "Throttled extraction progress reporting to prevent UI freezes during rapid processing."
+        ]);
+
         AddEntry("1.1.2", [
             "Added CascOpenStorageEx fallback for D2R installations where the standard CascOpenStorage "
                 + "fails (e.g. Steam after patch 3.1.2). The app now automatically retries with CDN-enabled "
