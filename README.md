@@ -2,7 +2,7 @@
 
 A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC game archives for faster load times. Also lets you undo the extraction before game updates and easily re-apply the extraction after updating.
 
-[⬇️ Download D2RExtractor v1.1.2 (Standalone ZIP)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_1.1.2/D2RExtractor-Compiled-Standalone.zip)
+[⬇️ Download D2RExtractor v1.1.3 (Standalone ZIP)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_1.1.3/D2RExtractor-Compiled-Standalone.zip)
 
 [YouTube Installation & Usage Guide](https://youtu.be/SYKQdQK1_gQ)
 
@@ -26,9 +26,9 @@ Extraction writes ~40–45 GB of data per D2R installation. More if also extract
 
 ### Steam installations
 
-Steam D2R installations (particularly after patch 3.1.2) may require CDN access for extraction. The app automatically detects when the standard CASC open fails and retries with CDN-enabled fallback. An internet connection may be required during extraction for these installations.
+Steam D2R installations (patch 3.1.2+) are fully supported. The app automatically detects when the standard CASC open fails and falls back to CDN-enabled mode. **An internet connection is required during extraction for Steam users** — game data is downloaded from Blizzard's CDN. Extraction time will depend on your download speed.
 
-If extraction still fails on Steam, check [CascLib issue #285](https://github.com/ladislav-zezula/CascLib/issues/285) for upstream fixes, and ensure you are using CascLib.dll 3.0 or newer.
+The bundled CascLib.dll includes patches for the Steam D2R CASC layout. See [CascLib issue #285](https://github.com/ladislav-zezula/CascLib/issues/285) for upstream context.
 
 ---
 
@@ -47,7 +47,7 @@ Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
 1. Launch `D2RExtractor.exe`
 2. Click **+ Add Installation** and select your D2R base folder (the one containing the `Data` subfolder) - Repeat for any additional D2R folders.
 3. Click the **Gear** icon at the top right corner for settings. This allows for extraction of international files (multi-language dubbing) if needed.
-4. Click **Extract** — extraction runs in the background (can take as long as ~30–45 min depending on your hardware)
+4. Click **Extract** — extraction runs in the background (Battle.net: ~30–45 min; Steam: depends on download speed)
 5. Launch D2R with the "-direct -txt" command line options and enjoy faster load times.
 
 ### Before updating D2R

@@ -253,6 +253,8 @@ public class CascExtractorService
             int processed = 0;
             long bytesProcessed = 0;
             int warnCount = 0;
+            int suppressedWarnings = 0;
+            var progressSw = System.Diagnostics.Stopwatch.StartNew();
 
             foreach (var (virtualPath, fileSize) in files)
             {
@@ -264,7 +266,7 @@ public class CascExtractorService
                 if (destDir != null)
                     Directory.CreateDirectory(destDir);
 
-                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, buffer, log);
+                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, buffer, ref suppressedWarnings);
 
                 if (extracted)
                     manifest.ExtractedFiles.Add(fsRelPath);
@@ -274,17 +276,26 @@ public class CascExtractorService
                 bytesProcessed += (long)fileSize;
                 processed++;
 
-                progress?.Report(new ExtractionProgress(
-                    processed, files.Count, virtualPath, bytesProcessed, totalBytes));
+                // Throttle progress reporting to ~4 updates/sec to avoid flooding the UI thread.
+                if (progressSw.ElapsedMilliseconds >= 250)
+                {
+                    progress?.Report(new ExtractionProgress(
+                        processed, files.Count, virtualPath, bytesProcessed, totalBytes));
+                    progressSw.Restart();
+                }
 
                 if (processed % 500 == 0)
                     ManifestService.SaveManifest(installation, manifest);
             }
 
+            // Final progress update.
+            progress?.Report(new ExtractionProgress(
+                processed, files.Count, "", bytesProcessed, totalBytes));
+
             manifest.TotalBytesExtracted = prevManifestBytes + bytesProcessed;
 
             if (warnCount > 0)
-                log?.Invoke($"Extraction complete with {warnCount} file(s) skipped (not available in this installation).");
+                log?.Invoke($"Extraction complete with {warnCount} file(s) skipped ({suppressedWarnings} could not be opened or sized — these may be CDN-only files not present locally).");
         }
         finally
         {
@@ -293,13 +304,12 @@ public class CascExtractorService
     }
 
     private static bool ExtractSingleFile(IntPtr hStorage, string virtualPath, string destPath,
-        byte[] buffer, Action<string>? log)
+        byte[] buffer, ref int suppressedWarnings)
     {
         if (!CascLib.CascOpenFile(hStorage, virtualPath, 0, CascLib.CASC_OPEN_BY_NAME, out IntPtr hFile)
             || hFile == IntPtr.Zero)
         {
-            int err = Marshal.GetLastWin32Error();
-            log?.Invoke($"  WARN: Could not open '{virtualPath}' (Win32 error {err}). Skipping.");
+            suppressedWarnings++;
             return false;
         }
 
@@ -309,7 +319,7 @@ public class CascExtractorService
             uint sizeLow = CascLib.CascGetFileSize(hFile, out sizeHigh);
             if (sizeLow == 0xFFFFFFFF && Marshal.GetLastWin32Error() != 0)
             {
-                log?.Invoke($"  WARN: Could not get size for '{virtualPath}'. Skipping.");
+                suppressedWarnings++;
                 return false;
             }
 
