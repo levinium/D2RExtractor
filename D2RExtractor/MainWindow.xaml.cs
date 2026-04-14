@@ -73,7 +73,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var manifest = ManifestService.LoadManifest(install);
         install.RefreshState(manifest?.IsComplete, manifest?.InternationalExtracted,
-            _preferences.ExtractInternationalFiles);
+            _preferences.ExtractInternationalFiles,
+            manifest?.InternationalLanguage, _preferences.InternationalLanguage);
     }
 
     private void OnInstallationsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -266,7 +267,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         long diskRequired = _preferences.ExtractInternationalFiles
-            ? 70L * 1024 * 1024 * 1024   // ~70 GB (base ~45 GB + int'l ~25 GB estimate)
+            ? 50L * 1024 * 1024 * 1024   // ~50 GB (base ~45 GB + one language ~1-2 GB)
             : 48L * 1024 * 1024 * 1024;  // ~48 GB base only
         string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
         if (spaceWarning != null)
@@ -280,8 +281,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ? "This installation has a partial extraction. The partial files will be cleaned up automatically before starting fresh.\n\n"
             : string.Empty;
 
-        string intlNote = _preferences.ExtractInternationalFiles
-            ? "International audio files (locales folder) will also be extracted.\n\n"
+        string intlNote = _preferences.ExtractInternationalFiles && !string.IsNullOrEmpty(_preferences.InternationalLanguage)
+            ? $"International files for '{_preferences.InternationalLanguage}' will also be extracted, replacing base English audio/text.\n\n"
             : string.Empty;
 
         var confirm = MessageBox.Show(
@@ -412,7 +413,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         foreach (var install in targets)
         {
             long diskRequired = _preferences.ExtractInternationalFiles
-                ? 70L * 1024 * 1024 * 1024
+                ? 50L * 1024 * 1024 * 1024
                 : 48L * 1024 * 1024 * 1024;
             string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
             if (spaceWarning != null)
@@ -510,18 +511,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 }
             });
 
-            // Detect whether this is an international-only pass (base already extracted, int'l missing).
+            // Detect whether this is an international-only pass (base already extracted, int'l missing or wrong language).
             var currentManifest = ManifestService.LoadManifest(install);
+            bool wantsInternational = _preferences.ExtractInternationalFiles
+                                      && !string.IsNullOrEmpty(_preferences.InternationalLanguage);
+            bool intlSatisfied = currentManifest?.InternationalExtracted == true
+                                 && string.Equals(currentManifest.InternationalLanguage,
+                                     _preferences.InternationalLanguage, StringComparison.OrdinalIgnoreCase);
             bool isInternationalOnly =
                 currentManifest?.IsComplete == true
-                && _preferences.ExtractInternationalFiles
-                && currentManifest.InternationalExtracted != true;
+                && wantsInternational
+                && !intlSatisfied;
 
             if (isInternationalOnly)
             {
-                Log($"[{install.Name}] Base already extracted — running international-only pass…");
+                Log($"[{install.Name}] Base already extracted — running international-only pass for '{_preferences.InternationalLanguage}'…");
                 install.StatusText = "Int'l extraction…";
-                await Task.Run(() => _extractor.ExtractInternationalOnly(install, currentManifest!, progress,
+                await Task.Run(() => _extractor.ExtractInternationalOnly(install, currentManifest!,
+                    _preferences.InternationalLanguage!, progress,
                     msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
             }
             else
@@ -537,7 +544,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     install.StatusText = "Starting…";
                 }
 
-                await Task.Run(() => _extractor.Extract(install, _preferences.ExtractInternationalFiles, progress,
+                await Task.Run(() => _extractor.Extract(install, _preferences.ExtractInternationalFiles,
+                    _preferences.InternationalLanguage, progress,
                     msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
             }
 
@@ -645,15 +653,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var win = new Views.SettingsWindow(_preferences) { Owner = this };
         if (win.ShowDialog() == true)
         {
-            bool changed = win.Preferences.ExtractInternationalFiles != _preferences.ExtractInternationalFiles;
+            bool intlChanged = win.Preferences.ExtractInternationalFiles != _preferences.ExtractInternationalFiles;
+            bool langChanged = !string.Equals(win.Preferences.InternationalLanguage, _preferences.InternationalLanguage, StringComparison.OrdinalIgnoreCase);
             _preferences = win.Preferences;
             ManifestService.SavePreferences(_preferences);
-            if (changed)
+            if (intlChanged || langChanged)
             {
                 foreach (var install in _installations)
                     RefreshInstallState(install);
                 RefreshToolbarState();
-                Log($"Settings saved. International extraction: {(_preferences.ExtractInternationalFiles ? "enabled" : "disabled")}.");
+                string langDisplay = _preferences.InternationalLanguage ?? "none";
+                Log($"Settings saved. International extraction: {(_preferences.ExtractInternationalFiles ? $"enabled ({langDisplay})" : "disabled")}.");
             }
         }
     }

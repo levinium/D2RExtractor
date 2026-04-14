@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Icon="/Resources/app.ico"
-        Width="440" Height="240"
-        MinWidth="360" MinHeight="220"
+        Width="440" Height="290"
+        MinWidth="360" MinHeight="270"
         WindowStartupLocation="CenterOwner"
         Background="#1A1A1A"
         ResizeMode="NoResize">
@@ -15,6 +15,84 @@
         <SolidColorBrush x:Key="MutedBrush"    Color="#888888"/>
         <SolidColorBrush x:Key="SurfaceBrush"  Color="#252525"/>
         <SolidColorBrush x:Key="Surface2Brush" Color="#2E2E2E"/>
+
+        <!-- Dark-themed ComboBox toggle button -->
+        <ControlTemplate x:Key="DarkComboBoxToggle" TargetType="ToggleButton">
+            <Border x:Name="Border" Background="#2E2E2E" BorderBrush="#555"
+                    BorderThickness="1" CornerRadius="3">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition/>
+                        <ColumnDefinition Width="20"/>
+                    </Grid.ColumnDefinitions>
+                    <ContentPresenter Grid.Column="0" Margin="6,2,0,2"
+                                      HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    <Path Grid.Column="1" Data="M 0 0 L 4 4 L 8 0 Z"
+                          Fill="#AAAAAA" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Border" Property="BorderBrush" Value="#777"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- Dark-themed ComboBox -->
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Template="{StaticResource DarkComboBoxToggle}"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          Focusable="False" ClickMode="Press"/>
+                            <ContentPresenter IsHitTestVisible="False" Margin="8,2,24,2"
+                                              VerticalAlignment="Center"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="#2E2E2E" BorderBrush="#555" BorderThickness="1"
+                                        CornerRadius="3" Padding="0,4"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        MinWidth="{TemplateBinding ActualWidth}">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel IsItemsHost="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Dark-themed ComboBoxItem -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3A3A3A"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#4A3A10"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -36,13 +114,25 @@
             <StackPanel>
                 <CheckBox x:Name="InternationalCheckBox"
                           Foreground="{StaticResource TextBrush}" FontSize="13"
-                          VerticalContentAlignment="Center" IsEnabled="False">
-                    <TextBlock Text="Extract international files (multi-language audio)"
-                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                          VerticalContentAlignment="Center"
+                          Checked="InternationalCheckBox_Changed"
+                          Unchecked="InternationalCheckBox_Changed">
+                    <TextBlock Text="Extract international files (dubbed audio &amp; localized text)"
+                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
                 </CheckBox>
-                <TextBlock Text="Temporarily disabled — international file extraction is not working correctly and is under investigation."
-                           Foreground="#CC8844" FontSize="11"
-                           TextWrapping="Wrap" Margin="20,4,0,0"/>
+
+                <!-- Language selector (visible when checkbox is checked) -->
+                <StackPanel x:Name="LanguagePanel" Orientation="Horizontal"
+                            Margin="20,8,0,0" Visibility="Collapsed">
+                    <TextBlock Text="Language:" Foreground="{StaticResource TextBrush}"
+                               FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="LanguageComboBox" Width="220" FontSize="12"
+                              Style="{StaticResource DarkComboBox}"/>
+                </StackPanel>
+                <TextBlock Text="Replaces base English audio/text with the selected language's files."
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           TextWrapping="Wrap" Margin="20,4,0,0"
+                           x:Name="IntlDescriptionText" Visibility="Collapsed"/>
             </StackPanel>
         </Border>
 

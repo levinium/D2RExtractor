@@ -182,17 +182,24 @@ public class D2RInstallation : INotifyPropertyChanged
     /// <param name="internationalEnabled">
     ///   Whether the "Extract international files" setting is currently on.
     /// </param>
-    public void RefreshState(bool? manifestIsComplete, bool? manifestInternationalExtracted, bool internationalEnabled)
+    /// <param name="manifestLanguage">The language code extracted in the manifest (null if none).</param>
+    /// <param name="preferredLanguage">The language code currently selected in preferences.</param>
+    public void RefreshState(bool? manifestIsComplete, bool? manifestInternationalExtracted,
+        bool internationalEnabled, string? manifestLanguage = null, string? preferredLanguage = null)
     {
-        // Fully extracted = base complete AND (int'l not required OR int'l done)
-        _isExtracted = manifestIsComplete == true
-                       && (!internationalEnabled || manifestInternationalExtracted == true);
+        // International is satisfied when extracted AND the language matches what's configured.
+        bool intlSatisfied = manifestInternationalExtracted == true
+                             && string.Equals(manifestLanguage, preferredLanguage, StringComparison.OrdinalIgnoreCase);
 
-        // Partially extracted = interrupted extraction OR base done but int'l still needed
+        // Fully extracted = base complete AND (int'l not required OR int'l done with correct language)
+        _isExtracted = manifestIsComplete == true
+                       && (!internationalEnabled || intlSatisfied);
+
+        // Partially extracted = interrupted extraction OR base done but int'l still needed/wrong language
         _isPartiallyExtracted = manifestIsComplete == false
                                 || (manifestIsComplete == true
                                     && internationalEnabled
-                                    && manifestInternationalExtracted != true);
+                                    && !intlSatisfied);
 
         OnPropertyChanged(nameof(IsExtracted));
         OnPropertyChanged(nameof(IsPartiallyExtracted));

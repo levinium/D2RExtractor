@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.4
+
+- **Fixed international file extraction.** Locale files were being extracted to a `locales\` directory that D2R ignores in `-direct` mode. Files are now correctly mapped into the `data\` tree (e.g. `data:locales\audio\itit\data\local\sfx\...` → `data\local\sfx\...`) so the game loads them.
+- Added language selector — choose which language to extract in Settings. Only the selected language's audio/text is extracted, replacing the base English files. Supports deDE, enUS, esES, esMX, frFR, itIT, jaJP, koKR, plPL, ptBR, ruRU, zhCN, zhTW.
+- Changing the selected language triggers a re-extraction of just the international files (no need to undo/redo the full base extraction).
+- Added CascDiagnostic console tool to the solution for CASC storage analysis and debugging.
+
 ## 1.1.3
 
 - **Steam D2R support (patch 3.1.2+):** Full extraction now works for Steam installations. Game data is downloaded from Blizzard's CDN during extraction, so an internet connection is required for Steam users.
