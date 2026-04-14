@@ -34,4 +34,10 @@ public class ExtractionManifest
     /// The field must deserialise as null when absent from old JSON so the sentinel works.
     /// </summary>
     public bool? InternationalExtracted { get; set; }
+
+    /// <summary>
+    /// The language code that was extracted (e.g. "itIT"). Null if no language was extracted
+    /// or the manifest predates language-aware extraction.
+    /// </summary>
+    public string? InternationalLanguage { get; set; }
 }

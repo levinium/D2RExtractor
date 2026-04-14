@@ -21,6 +21,18 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.4", [
+            "Fixed international file extraction. Locale files were being extracted to a 'locales' "
+                + "directory that D2R ignores in -direct mode. Files are now correctly mapped into the "
+                + "data tree so the game loads dubbed audio and localized text.",
+            "Added language selector \u2014 choose which language to extract in Settings. Only the "
+                + "selected language's audio/text is extracted, replacing the base English files. Supports "
+                + "deDE, enUS, esES, esMX, frFR, itIT, jaJP, koKR, plPL, ptBR, ruRU, zhCN, zhTW.",
+            "Changing the selected language triggers a re-extraction of just the international files "
+                + "(no need to undo/redo the full base extraction).",
+            "Added CascDiagnostic console tool to the solution for CASC storage analysis and debugging."
+        ]);
+
         AddEntry("1.1.3", [
             "Steam D2R support (patch 3.1.2+): Full extraction now works for Steam installations. "
                 + "Game data is downloaded from Blizzard's CDN during extraction, so an internet connection "
@@ -43,7 +55,7 @@ public partial class ChangeLogWindow : Window
             "Graceful handling when CascOpenStorageEx is not available in older CascLib.dll versions, "
                 + "with guidance to update.",
             "Temporarily disabled international file extraction (multi-language audio) due to the feature "
-                + "not working correctly. The option is grayed out in settings until a fix is available."
+                + "not working correctly. (Re-enabled in v1.1.4.)"
         ]);
 
         AddEntry("1.1.1", [

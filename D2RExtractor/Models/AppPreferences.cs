@@ -7,4 +7,28 @@ public class AppPreferences
 {
     /// <summary>Whether to extract international audio/dubbing files (locales folder).</summary>
     public bool ExtractInternationalFiles { get; set; }
+
+    /// <summary>
+    /// The language code to extract (e.g. "itIT", "deDE").
+    /// Locale files are extracted into the data\ tree, replacing the base English audio/text.
+    /// </summary>
+    public string? InternationalLanguage { get; set; }
+
+    /// <summary>Available language codes and their display names.</summary>
+    public static readonly (string Code, string Name)[] AvailableLanguages =
+    [
+        ("deDE", "Deutsch (German)"),
+        ("enUS", "English"),
+        ("esES", "Espa\u00f1ol (Spanish)"),
+        ("esMX", "Espa\u00f1ol (Latin America)"),
+        ("frFR", "Fran\u00e7ais (French)"),
+        ("itIT", "Italiano (Italian)"),
+        ("jaJP", "\u65e5\u672c\u8a9e (Japanese)"),
+        ("koKR", "\ud55c\uad6d\uc5b4 (Korean)"),
+        ("plPL", "Polski (Polish)"),
+        ("ptBR", "Portugu\u00eas (Brazilian)"),
+        ("ruRU", "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)"),
+        ("zhCN", "\u4e2d\u6587 (Simplified Chinese)"),
+        ("zhTW", "\u4e2d\u6587 (Traditional Chinese)"),
+    ];
 }

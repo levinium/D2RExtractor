@@ -45,13 +45,20 @@ public class CascExtractorService
     };
 
     /// <summary>
-    /// CASC virtual-path prefix for international audio/dubbing files.
-    /// Verified: CASC entries use "data:locales\audio\&lt;langcode&gt;\data\..." paths.
+    /// Builds CASC virtual-path prefixes for the given language's locale files.
+    /// Confirmed via CascDiagnostic: files live under two sub-prefixes:
+    ///   data:locales\audio\{langcode}\  — FLAC dubbing audio
+    ///   data:locales\data\{langcode}\   — text/localization data
     /// </summary>
-    private static readonly string[] InternationalPrefixes =
+    private static string[] GetInternationalPrefixes(string langCode)
     {
-        @"data:locales\"
-    };
+        string lc = langCode.ToLowerInvariant();
+        return new[]
+        {
+            $@"data:locales\audio\{lc}\",
+            $@"data:locales\data\{lc}\"
+        };
+    }
 
     // -----------------------------------------------------------------------
     // Extraction
@@ -69,6 +76,7 @@ public class CascExtractorService
     public ExtractionManifest Extract(
         D2RInstallation installation,
         bool extractInternational,
+        string? internationalLanguage,
         IProgress<ExtractionProgress>? progress,
         Action<string>? log,
         CancellationToken ct)
@@ -106,8 +114,8 @@ public class CascExtractorService
                 progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
             };
 
-            string[] prefixes = extractInternational
-                ? TargetPrefixes.Concat(InternationalPrefixes).ToArray()
+            string[] prefixes = extractInternational && !string.IsNullOrEmpty(internationalLanguage)
+                ? TargetPrefixes.Concat(GetInternationalPrefixes(internationalLanguage)).ToArray()
                 : TargetPrefixes;
             var enumSw = System.Diagnostics.Stopwatch.StartNew();
             foreach (var entry in CascLib.EnumerateFiles(hStorage, prefixes, ct, onScanProgress, onIndexBuildComplete, log))
@@ -138,7 +146,8 @@ public class CascExtractorService
             ExtractFilesParallel(files, installPath, installation, manifest, progress, log, ct);
 
             manifest.IsComplete = true;
-            manifest.InternationalExtracted = extractInternational;
+            manifest.InternationalExtracted = extractInternational && !string.IsNullOrEmpty(internationalLanguage);
+            manifest.InternationalLanguage = extractInternational ? internationalLanguage : null;
             ManifestService.SaveManifest(installation, manifest);
             log?.Invoke($"Extraction complete. {manifest.ExtractedFiles.Count:N0} files, {FormatBytes(manifest.TotalBytesExtracted)} written.");
             return manifest;
@@ -158,6 +167,7 @@ public class CascExtractorService
     public ExtractionManifest ExtractInternationalOnly(
         D2RInstallation installation,
         ExtractionManifest existingManifest,
+        string languageCode,
         IProgress<ExtractionProgress>? progress,
         Action<string>? log,
         CancellationToken ct)
@@ -185,7 +195,7 @@ public class CascExtractorService
                 progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
             };
 
-            foreach (var entry in CascLib.EnumerateFiles(hStorage, InternationalPrefixes, ct, onScanProgress, onIndexBuildComplete, log))
+            foreach (var entry in CascLib.EnumerateFiles(hStorage, GetInternationalPrefixes(languageCode), ct, onScanProgress, onIndexBuildComplete, log))
                 files.Add(entry);
 
             ct.ThrowIfCancellationRequested();
@@ -193,8 +203,9 @@ public class CascExtractorService
             // Zero files is not an error — this install may not have any language packs.
             if (files.Count == 0)
             {
-                log?.Invoke("No international files found in CASC storage — this installation may not have any language packs downloaded. Marking international extraction as complete.");
+                log?.Invoke($"No international files found for language '{languageCode}' — this installation may not have that language pack downloaded. Marking international extraction as complete.");
                 existingManifest.InternationalExtracted = true;
+                existingManifest.InternationalLanguage = languageCode;
                 ManifestService.SaveManifest(installation, existingManifest);
                 return existingManifest;
             }
@@ -206,8 +217,9 @@ public class CascExtractorService
             ExtractFilesParallel(files, installPath, installation, existingManifest, progress, log, ct);
 
             existingManifest.InternationalExtracted = true;
+            existingManifest.InternationalLanguage = languageCode;
             ManifestService.SaveManifest(installation, existingManifest);
-            log?.Invoke($"International extraction complete. {files.Count:N0} files extracted.");
+            log?.Invoke($"International extraction complete. {files.Count:N0} files extracted for '{languageCode}'.");
             return existingManifest;
         }
         finally
@@ -391,14 +403,18 @@ public class CascExtractorService
             progress?.Report(new ExtractionProgress(processed, total, relativePath, processed, total));
         }
 
-        // Remove now-empty directories for the three target prefixes.
-        // Strip the CASC namespace prefix before building the filesystem path.
-        foreach (string prefix in TargetPrefixes.Concat(InternationalPrefixes))
+        // Remove now-empty directories under the data\ tree.
+        // International files now extract into data\ (not locales\), so cleaning
+        // the three target prefix directories covers everything.
+        foreach (string prefix in TargetPrefixes)
         {
             string fsPrefix = StripCascNamespace(prefix);
             string dir = Path.Combine(installation.FolderPath, fsPrefix.TrimEnd('\\'));
             RemoveEmptyDirectories(dir, log);
         }
+        // Also clean up any old-style locales\ directory from pre-v1.1.4 extractions.
+        string oldLocalesDir = Path.Combine(installation.FolderPath, "locales");
+        RemoveEmptyDirectories(oldLocalesDir, log);
 
         ManifestService.DeleteManifest(installation);
         log?.Invoke("Undo complete. Extracted files have been removed.");
@@ -466,12 +482,35 @@ public class CascExtractorService
     /// <summary>
     /// Strips the CASC VFS namespace prefix from a virtual path so it can be used as a
     /// filesystem-relative path.
-    /// Example: <c>"data:data\global\allcofs.bin"</c> → <c>"data\global\allcofs.bin"</c>
+    ///
+    /// For base files:
+    ///   <c>"data:data\global\allcofs.bin"</c> → <c>"data\global\allcofs.bin"</c>
+    ///
+    /// For locale files, the <c>locales\{type}\{langcode}\</c> prefix is also stripped so
+    /// the files land in the game's <c>data\</c> tree where D2R expects them in -direct mode:
+    ///   <c>"data:locales\audio\itit\data\hd\local\sfx\..."</c> → <c>"data\hd\local\sfx\..."</c>
+    ///   <c>"data:locales\data\dede\data\local\lng\..."</c> → <c>"data\local\lng\..."</c>
     /// </summary>
     private static string StripCascNamespace(string cascPath)
     {
         int i = cascPath.IndexOf(':');
-        return i >= 0 ? cascPath.Substring(i + 1) : cascPath;
+        string afterNamespace = i >= 0 ? cascPath.Substring(i + 1) : cascPath;
+
+        // Locale paths: locales\{type}\{langcode}\data\... → strip the first 3 segments.
+        if (afterNamespace.StartsWith(@"locales\", StringComparison.OrdinalIgnoreCase))
+        {
+            // Find the 3rd backslash: locales\audio\itit\...
+            int pos = 0;
+            for (int seg = 0; seg < 3 && pos < afterNamespace.Length; seg++)
+            {
+                int next = afterNamespace.IndexOf('\\', pos);
+                if (next < 0) return afterNamespace; // malformed — return as-is
+                pos = next + 1;
+            }
+            return afterNamespace.Substring(pos);
+        }
+
+        return afterNamespace;
     }
 
     private static string FormatBytes(long bytes)
