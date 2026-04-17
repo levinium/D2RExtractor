@@ -1,0 +1,4 @@
+[submodule "external/CascLib"]
+	path = external/CascLib
+	url = https://github.com/ladislav-zezula/CascLib.git
+	ignore = dirty
