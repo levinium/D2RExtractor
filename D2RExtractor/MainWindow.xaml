@@ -346,10 +346,20 @@
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="4,4" VerticalAlignment="Center">
+                                        <!-- Extract: shown when NOT fully extracted -->
                                         <Button Content="Extract"
                                                 Style="{StaticResource AccentButtonStyle}"
+                                                Visibility="{Binding IsExtracted, Converter={StaticResource InvBoolToVis}}"
                                                 IsEnabled="{Binding CanExtract}"
                                                 Click="ExtractButton_Click"
+                                                Tag="{Binding}"
+                                                Margin="0,0,6,0" Width="80"/>
+                                        <!-- Re-Extract: shown only when fully extracted -->
+                                        <Button Content="Re-Extract"
+                                                Style="{StaticResource AccentButtonStyle}"
+                                                Visibility="{Binding IsExtracted, Converter={StaticResource BoolToVis}}"
+                                                IsEnabled="{Binding CanReExtract}"
+                                                Click="ReExtractButton_Click"
                                                 Tag="{Binding}"
                                                 Margin="0,0,6,0" Width="80"/>
 
@@ -420,6 +430,12 @@
                     Click="ExtractAll_Click"
                     Padding="14,6" Margin="0,0,8,0"
                     ToolTip="Extract all installations that have not yet been extracted"/>
+            <Button Content="Re-Extract All"
+                    Style="{StaticResource AccentButtonStyle}"
+                    IsEnabled="{Binding CanReExtractAll}"
+                    Click="ReExtractAll_Click"
+                    Padding="14,6" Margin="0,0,8,0"
+                    ToolTip="Undo and re-extract all fully extracted installations"/>
             <Button Content="Undo All"
                     Style="{StaticResource DangerButtonStyle}"
                     IsEnabled="{Binding CanUndoAll}"
