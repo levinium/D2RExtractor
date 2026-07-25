@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.6
+
+- **Fixed a Steam extraction bug that caused a game-launch error.** The Steam TVFS omits path separators for some entries, so ~3,481 files (e.g. `data\global\sfx\monster\baal\coldtrail.flac`) were written with a merged folder/file name (`…\monster\baalcoldtrail.flac`) — landing at the wrong path. The file contents were correct, but the game couldn't find them and errored on launch.
+- The extractor now recovers the canonical paths from the storage's `index` text ROOT (verified against the build config's `root` key) and joins them onto the TVFS encoding keys. The resulting Steam path set is now byte-for-byte identical to the Battle.net layout.
+- Affects Steam only; Battle.net was never impacted.
+
 ## 1.1.5
 
 - **Restored Steam D2R support after the mid-2026 storage change (build 93236+).** Steam's latest update replaced the classic CASC layout (`.build.info` + `Data\indices` + `*.idx`) with a self-contained "Static Build Configuration" storage: a `data\.build.config` plus flat `NN-NNNNNNNN.data` archives whose physical location is encoded directly in each file's encoding key. CascLib does not support this format, so extraction stopped working.

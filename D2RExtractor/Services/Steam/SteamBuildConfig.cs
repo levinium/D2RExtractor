@@ -25,6 +25,9 @@ namespace D2RExtractor.Services.Steam;
 /// </summary>
 internal sealed class SteamBuildConfig
 {
+    /// <summary>Content key (16 bytes) of the <c>root</c> manifest — the text ROOT ("index") file's MD5.</summary>
+    public byte[] Root { get; private set; } = Array.Empty<byte>();
+
     /// <summary>Encoding key (16 bytes) of the primary VFS root directory.</summary>
     public byte[] VfsRootEKey { get; private set; } = Array.Empty<byte>();
 
@@ -71,6 +74,16 @@ internal sealed class SteamBuildConfig
         }
 
         var cfg = new SteamBuildConfig();
+
+        // root = <ckey> (single token) — MD5 of the text ROOT ("index") file.
+        if (kv.TryGetValue("root", out string? rootVal))
+        {
+            string[] rt = rootVal.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (rt.Length > 0)
+            {
+                try { cfg.Root = FromHex(rt[0]); } catch { /* leave empty; verification will be skipped */ }
+            }
+        }
 
         if (!kv.TryGetValue("vfs-root", out string? vfsRoot))
             throw new InvalidDataException(".build.config is missing 'vfs-root' — not a recognised static-container storage.");
