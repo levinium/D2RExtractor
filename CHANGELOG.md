@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.5
+
+- **Restored Steam D2R support after the mid-2026 storage change (build 93236+).** Steam's latest update replaced the classic CASC layout (`.build.info` + `Data\indices` + `*.idx`) with a self-contained "Static Build Configuration" storage: a `data\.build.config` plus flat `NN-NNNNNNNN.data` archives whose physical location is encoded directly in each file's encoding key. CascLib does not support this format, so extraction stopped working.
+- Added a **native, fully-local reader** for the new Steam format — no CascLib.dll and **no internet connection required** (unlike the previous 3.1.2-era CDN-download workaround). It parses the build config, resolves file locations from the key-layout bit fields, walks the TVFS file tree, and decodes BLTE/zlib blobs entirely from the local `.data` files.
+- The extractor now **auto-detects the storage format** per install: the native reader for Steam static-container installs (`data\.build.config` present), and CascLib for classic CASC installs (Battle.net). Both produce identical virtual paths, so extraction output is unchanged.
+- Battle.net extraction is unaffected and continues to use CascLib.dll.
+- Extraction backends are now abstracted behind a common interface, so both formats share one extraction/manifest/progress loop.
+- Installation validation now accepts a Steam static-container folder (`data\.build.config`) in addition to the classic `Data\indices` layout.
+
 ## 1.1.4
 
 - **Fixed international file extraction.** Locale files were being extracted to a `locales\` directory that D2R ignores in `-direct` mode. Files are now correctly mapped into the `data\` tree (e.g. `data:locales\audio\itit\data\local\sfx\...` → `data\local\sfx\...`) so the game loads them.

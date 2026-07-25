@@ -1,20 +1,20 @@
 ﻿D2RExtractor
-1.0.0.0
+1.1.5.0
 
 winexe
 C#
 .cs
-C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Debug\net8.0-windows\
+C:\Users\wootowl\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\obj\x64\Debug\net8.0-windows\
 D2RExtractor
 none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
-C:\Users\PC930623\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\App.xaml
-11407045341
+C:\Users\wootowl\Documents\VSCode Projects\Main Project\D2RExtractor\D2RExtractor\App.xaml
+31326636223
 1-63505821
-12466541886
-2081373678050
-MainWindow.xaml;
+21763377649
+208-1257933548
+MainWindow.xaml;Views\ChangeLogWindow.xaml;Views\SettingsWindow.xaml;
 
 True
 
