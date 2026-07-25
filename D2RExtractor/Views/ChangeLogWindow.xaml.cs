@@ -21,6 +21,15 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.6", [
+            "Fixed a Steam extraction bug that caused an error on game launch. The Steam storage omits "
+                + "path separators for some entries, so a few thousand files (e.g. sound files under "
+                + "sfx\\monster\\baal\\) were written with a merged folder/file name and ended up at the wrong "
+                + "path. Their contents were correct, but the game couldn't find them and errored on launch.",
+            "The extractor now recovers the correct paths from the storage's 'index' manifest, so the Steam "
+                + "output matches the Battle.net layout exactly. Steam only — Battle.net was never affected."
+        ]);
+
         AddEntry("1.1.5", [
             "Restored Steam D2R support after the mid-2026 storage change (build 93236+). Steam's latest "
                 + "update replaced the classic CASC layout with a self-contained 'Static Build Configuration' "

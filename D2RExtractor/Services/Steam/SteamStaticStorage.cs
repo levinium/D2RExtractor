@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 
 namespace D2RExtractor.Services.Steam;
@@ -79,7 +82,104 @@ internal sealed class SteamStaticStorage : IDisposable
         sw.Stop();
         log?.Invoke($"TVFS tree parsed in {sw.ElapsedMilliseconds / 1000.0:F1}s — {files.Count:N0} total file(s) found.");
 
+        // The Steam TVFS omits path separators for some entries (e.g. it yields
+        // "…\monster\baalcoldtrail.flac" instead of "…\monster\baal\coldtrail.flac"),
+        // which would write those files to the wrong location and break the game at
+        // launch. The correct paths live in the "index" text ROOT; join them onto the
+        // TVFS encoding keys to recover the real paths.
+        files = ApplyTextRootPaths(container, config, files, log);
+
         return new SteamStaticStorage(container, files);
+    }
+
+    /// <summary>
+    /// Rewrites file paths using the "index" text ROOT so path separators (and casing)
+    /// exactly match the canonical layout — the same paths Battle.net/CascLib produce.
+    ///
+    /// The text ROOT is a newline-delimited list of <c>fullpath|md5|plugin|</c> records
+    /// (verified against the build config's <c>root</c> CKey). Each canonical path is
+    /// matched to a TVFS entry — which carries the encoding key needed to read the file —
+    /// via a separator-stripped, lowercased lookup key. If the ROOT is missing or does
+    /// not verify, the raw TVFS paths are used unchanged (best effort, no regression).
+    /// </summary>
+    private static List<Tvfs.FileEntry> ApplyTextRootPaths(
+        StaticContainer container, SteamBuildConfig config, List<Tvfs.FileEntry> files, Action<string>? log)
+    {
+        Tvfs.FileEntry? indexEntry = files.FirstOrDefault(
+            f => f.VirtualPath.Equals("index", StringComparison.OrdinalIgnoreCase) && f.Spans.Count > 0);
+        if (indexEntry == null)
+        {
+            log?.Invoke("No 'index' text ROOT present — using raw TVFS paths.");
+            return files;
+        }
+
+        byte[] indexData;
+        try { indexData = container.OpenByEKey(indexEntry.Spans[0].EKey); }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Could not read 'index' text ROOT ({ex.Message}) — using raw TVFS paths.");
+            return files;
+        }
+
+        // Verify the ROOT is the one declared by the build config.
+        if (config.Root.Length == 16 && !MD5.HashData(indexData).AsSpan().SequenceEqual(config.Root))
+        {
+            log?.Invoke("'index' text ROOT hash does not match build config — using raw TVFS paths.");
+            return files;
+        }
+
+        // Map separator-stripped lowercase path → TVFS entry (carries the encoding key).
+        var map = new Dictionary<string, Tvfs.FileEntry>(files.Count, StringComparer.Ordinal);
+        foreach (Tvfs.FileEntry f in files)
+            map[SeparatorlessLower(f.VirtualPath)] = f;
+
+        var corrected = new List<Tvfs.FileEntry>(files.Count);
+        int matched = 0, missed = 0;
+        string text = Encoding.UTF8.GetString(indexData);
+        foreach (string rawLine in text.Split('\n'))
+        {
+            int len = rawLine.Length;
+            if (len > 0 && rawLine[len - 1] == '\r') len--;
+            if (len == 0) continue;
+
+            int bar = rawLine.IndexOf('|');
+            int nameLen = (bar >= 0 && bar < len) ? bar : len;
+            if (nameLen <= 0) continue;
+
+            string path = rawLine[..nameLen];
+            if (map.TryGetValue(SeparatorlessLower(path), out Tvfs.FileEntry? entry))
+            {
+                matched++;
+                corrected.Add(new Tvfs.FileEntry
+                {
+                    VirtualPath = path.Replace('/', '\\').ToLowerInvariant(),
+                    Size = entry.Size,
+                    Spans = entry.Spans,
+                });
+            }
+            else missed++;
+        }
+
+        // Guard against a bad/partial ROOT wiping the file list.
+        if (corrected.Count < files.Count / 2)
+        {
+            log?.Invoke($"Text ROOT join matched only {corrected.Count:N0}/{files.Count:N0} — using raw TVFS paths.");
+            return files;
+        }
+
+        log?.Invoke($"Applied canonical paths from text ROOT: {matched:N0} files matched" +
+                    (missed > 0 ? $", {missed:N0} unmatched." : "."));
+        return corrected;
+    }
+
+    /// <summary>Lowercases a path and removes all path separators, for ROOT↔TVFS joining.</summary>
+    private static string SeparatorlessLower(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (char c in s)
+            if (c != '/' && c != '\\')
+                sb.Append(char.ToLowerInvariant(c));
+        return sb.ToString();
     }
 
     /// <summary>
