@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using D2RExtractor.Models;
 using D2RExtractor.Native;
+using D2RExtractor.Services.Steam;
 
 namespace D2RExtractor.Services;
 
@@ -85,78 +86,75 @@ public class CascExtractorService
 
         string installPath = installation.FolderPath;
 
-        log?.Invoke($"Opening CASC storage at: {installPath}");
+        log?.Invoke($"Opening storage at: {installPath}");
 
-        IntPtr hStorage = CascLib.OpenStorageWithFallback(installPath, log);
+        using IExtractionBackend backend = CreateBackend(installPath, log);
 
-        try
+        log?.Invoke("Opening file index — this can take a couple of minutes on first run, please wait…");
+        progress?.Report(new ExtractionProgress(0, 0, "", 0, 0, IsEnumerating: true));
+
+        // First pass: collect all matching file entries to get a total count.
+        // For CascLib (Battle.net) this blocks while D2R's internal file index builds — the slow part.
+        // The Steam static-container backend parses its file tree in a few seconds instead.
+        // onIndexBuildComplete fires once the index is ready so we can log elapsed time and switch
+        // the status text; onScanProgress fires periodically during the scan so the UI stays alive.
+        Action<string>? onScanProgress = progress == null ? null : currentFile =>
+            progress.Report(new ExtractionProgress(0, 0, currentFile, 0, 0, IsEnumerating: true));
+
+        Action<long> onIndexBuildComplete = elapsedMs =>
         {
-            log?.Invoke("Opening CASC file index — this can take 2–3 minutes on first run, please wait…");
-            progress?.Report(new ExtractionProgress(0, 0, "", 0, 0, IsEnumerating: true));
+            log?.Invoke($"File index opened in {elapsedMs / 1000.0:F1}s — scanning entries…");
+            progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
+        };
 
-            // First pass: collect all matching file entries to get a total count.
-            // CascFindFirstFile blocks while it builds D2R's internal file index — this is the slow part.
-            // onIndexBuildComplete fires once CascFindFirstFile returns so we can log elapsed time and
-            // switch the status text before the per-file scan loop begins.
-            // The onScanProgress callback fires every ~500 ms from INSIDE the iterator (even for
-            // non-matching files), so the UI updates throughout — not just when matching files are yielded.
-            // Cancellation is detected post-loop (normal method code) so the debugger traces the
-            // OperationCanceledException cleanly back to the catch handler in RunExtractAsync.
-            var files = new List<(string VirtualPath, ulong FileSize)>();
+        string[] prefixes = extractInternational && !string.IsNullOrEmpty(internationalLanguage)
+            ? TargetPrefixes.Concat(GetInternationalPrefixes(internationalLanguage)).ToArray()
+            : TargetPrefixes;
+        var enumSw = System.Diagnostics.Stopwatch.StartNew();
+        var files = backend.EnumerateMatching(prefixes, ct, onScanProgress, onIndexBuildComplete, log);
+        enumSw.Stop();
 
-            Action<string>? onScanProgress = progress == null ? null : currentFile =>
-                progress.Report(new ExtractionProgress(
-                    files.Count, 0, currentFile, 0, 0, IsEnumerating: true));
+        log?.Invoke($"Entry scan complete in {enumSw.ElapsedMilliseconds / 1000.0:F1}s — {files.Count:N0} matching files found.");
 
-            Action<long> onIndexBuildComplete = elapsedMs =>
-            {
-                log?.Invoke($"File index opened in {elapsedMs / 1000.0:F1}s — scanning entries…");
-                progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
-            };
+        // Throw here (regular method code, not an iterator) if the user cancelled.
+        ct.ThrowIfCancellationRequested();
 
-            string[] prefixes = extractInternational && !string.IsNullOrEmpty(internationalLanguage)
-                ? TargetPrefixes.Concat(GetInternationalPrefixes(internationalLanguage)).ToArray()
-                : TargetPrefixes;
-            var enumSw = System.Diagnostics.Stopwatch.StartNew();
-            foreach (var entry in CascLib.EnumerateFiles(hStorage, prefixes, ct, onScanProgress, onIndexBuildComplete, log))
-                files.Add(entry);
-            enumSw.Stop();
+        progress?.Report(new ExtractionProgress(0, files.Count, "", 0, 0, IsEnumerating: false));
 
-            log?.Invoke($"Entry scan complete in {enumSw.ElapsedMilliseconds / 1000.0:F1}s — {files.Count:N0} matching files found.");
-
-            // Throw here (regular method code, not an iterator) if the user cancelled.
-            ct.ThrowIfCancellationRequested();
-
-            progress?.Report(new ExtractionProgress(0, files.Count, "", 0, 0, IsEnumerating: false));
-
-            if (files.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    "No matching files found in CASC storage. " +
-                    "The listfile may be missing or the CASC format is not recognised. " +
-                    "Ensure you are pointing at the correct D2R installation folder.");
-            }
-
-            // Close the enumeration handle — ExtractFilesParallel opens its own.
-            CascLib.CascCloseStorage(hStorage);
-            hStorage = IntPtr.Zero;
-
-            var manifest = new ExtractionManifest { ExtractedAt = DateTime.UtcNow, IsComplete = false };
-
-            ExtractFilesParallel(files, installPath, installation, manifest, progress, log, ct);
-
-            manifest.IsComplete = true;
-            manifest.InternationalExtracted = extractInternational && !string.IsNullOrEmpty(internationalLanguage);
-            manifest.InternationalLanguage = extractInternational ? internationalLanguage : null;
-            ManifestService.SaveManifest(installation, manifest);
-            log?.Invoke($"Extraction complete. {manifest.ExtractedFiles.Count:N0} files, {FormatBytes(manifest.TotalBytesExtracted)} written.");
-            return manifest;
-        }
-        finally
+        if (files.Count == 0)
         {
-            if (hStorage != IntPtr.Zero)
-                CascLib.CascCloseStorage(hStorage);
+            throw new InvalidOperationException(
+                "No matching files found in the game storage. " +
+                "The listfile may be missing or the storage format is not recognised. " +
+                "Ensure you are pointing at the correct D2R installation folder.");
         }
+
+        var manifest = new ExtractionManifest { ExtractedAt = DateTime.UtcNow, IsComplete = false };
+
+        ExtractFilesParallel(backend, files, installPath, installation, manifest, progress, log, ct);
+
+        manifest.IsComplete = true;
+        manifest.InternationalExtracted = extractInternational && !string.IsNullOrEmpty(internationalLanguage);
+        manifest.InternationalLanguage = extractInternational ? internationalLanguage : null;
+        ManifestService.SaveManifest(installation, manifest);
+        log?.Invoke($"Extraction complete. {manifest.ExtractedFiles.Count:N0} files, {FormatBytes(manifest.TotalBytesExtracted)} written.");
+        return manifest;
+    }
+
+    /// <summary>
+    /// Selects the storage backend for an install: the native Steam static-container
+    /// reader when a <c>data\.build.config</c> is present (Steam patch build 93236+),
+    /// otherwise CascLib for classic CASC (Battle.net).
+    /// </summary>
+    private static IExtractionBackend CreateBackend(string installPath, Action<string>? log)
+    {
+        if (SteamStaticStorage.IsSteamStaticStorage(installPath))
+        {
+            log?.Invoke("Detected Steam static-container storage — using the native local reader (no internet required).");
+            return new SteamStaticBackend(installPath, log);
+        }
+        log?.Invoke("Using CascLib storage backend (Battle.net / classic CASC).");
+        return new CascLibBackend(installPath);
     }
 
     /// <summary>
@@ -175,58 +173,42 @@ public class CascExtractorService
         ct.ThrowIfCancellationRequested();
         string installPath = installation.FolderPath;
 
-        log?.Invoke("Opening CASC storage for international files extraction…");
-        log?.Invoke("Opening CASC file index — this can take 2–3 minutes on first run, please wait…");
+        log?.Invoke("Opening storage for international files extraction…");
+        log?.Invoke("Opening file index — this can take a couple of minutes on first run, please wait…");
         progress?.Report(new ExtractionProgress(0, 0, "", 0, 0, IsEnumerating: true));
 
-        IntPtr hStorage = CascLib.OpenStorageWithFallback(installPath, log);
+        using IExtractionBackend backend = CreateBackend(installPath, log);
 
-        try
+        Action<string>? onScanProgress = progress == null ? null : currentFile =>
+            progress.Report(new ExtractionProgress(0, 0, currentFile, 0, 0, IsEnumerating: true));
+
+        Action<long> onIndexBuildComplete = elapsedMs =>
         {
-            var files = new List<(string VirtualPath, ulong FileSize)>();
+            log?.Invoke($"File index opened in {elapsedMs / 1000.0:F1}s — scanning for international files…");
+            progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
+        };
 
-            Action<string>? onScanProgress = progress == null ? null : currentFile =>
-                progress.Report(new ExtractionProgress(
-                    files.Count, 0, currentFile, 0, 0, IsEnumerating: true));
+        var files = backend.EnumerateMatching(GetInternationalPrefixes(languageCode), ct, onScanProgress, onIndexBuildComplete, log);
 
-            Action<long> onIndexBuildComplete = elapsedMs =>
-            {
-                log?.Invoke($"File index opened in {elapsedMs / 1000.0:F1}s — scanning for international files…");
-                progress?.Report(new ExtractionProgress(0, 0, "[scanning entries…]", 0, 0, IsEnumerating: true));
-            };
+        ct.ThrowIfCancellationRequested();
 
-            foreach (var entry in CascLib.EnumerateFiles(hStorage, GetInternationalPrefixes(languageCode), ct, onScanProgress, onIndexBuildComplete, log))
-                files.Add(entry);
-
-            ct.ThrowIfCancellationRequested();
-
-            // Zero files is not an error — this install may not have any language packs.
-            if (files.Count == 0)
-            {
-                log?.Invoke($"No international files found for language '{languageCode}' — this installation may not have that language pack downloaded. Marking international extraction as complete.");
-                existingManifest.InternationalExtracted = true;
-                existingManifest.InternationalLanguage = languageCode;
-                ManifestService.SaveManifest(installation, existingManifest);
-                return existingManifest;
-            }
-
-            // Close the enumeration storage handle before starting parallel extraction.
-            CascLib.CascCloseStorage(hStorage);
-            hStorage = IntPtr.Zero;
-
-            ExtractFilesParallel(files, installPath, installation, existingManifest, progress, log, ct);
-
+        // Zero files is not an error — this install may not have any language packs.
+        if (files.Count == 0)
+        {
+            log?.Invoke($"No international files found for language '{languageCode}' — this installation may not have that language pack downloaded. Marking international extraction as complete.");
             existingManifest.InternationalExtracted = true;
             existingManifest.InternationalLanguage = languageCode;
             ManifestService.SaveManifest(installation, existingManifest);
-            log?.Invoke($"International extraction complete. {files.Count:N0} files extracted for '{languageCode}'.");
             return existingManifest;
         }
-        finally
-        {
-            if (hStorage != IntPtr.Zero)
-                CascLib.CascCloseStorage(hStorage);
-        }
+
+        ExtractFilesParallel(backend, files, installPath, installation, existingManifest, progress, log, ct);
+
+        existingManifest.InternationalExtracted = true;
+        existingManifest.InternationalLanguage = languageCode;
+        ManifestService.SaveManifest(installation, existingManifest);
+        log?.Invoke($"International extraction complete. {files.Count:N0} files extracted for '{languageCode}'.");
+        return existingManifest;
     }
 
     // -----------------------------------------------------------------------
@@ -236,13 +218,14 @@ public class CascExtractorService
     private const int ChunkSize = 1024 * 1024; // 1 MB read buffer
 
     /// <summary>
-    /// Extracts <paramref name="files"/> using a single CASC storage handle.
-    /// CASC reads are single-threaded (the native library doesn't support concurrent access),
-    /// but each file's disk write is streamed directly from CASC in chunks without buffering
-    /// the entire file in memory. A background task handles manifest bookkeeping and progress
-    /// reporting so the main loop stays tight on CASC I/O.
+    /// Extracts <paramref name="files"/> via the given <paramref name="backend"/>.
+    /// Storage reads are single-threaded (neither backend supports concurrent access);
+    /// each file is streamed/decoded directly to disk. This method owns the shared
+    /// bookkeeping — destination paths, directory creation, manifest, and progress —
+    /// so both storage formats go through identical output logic.
     /// </summary>
     private static void ExtractFilesParallel(
+        IExtractionBackend backend,
         List<(string VirtualPath, ulong FileSize)> files,
         string installPath,
         D2RInstallation installation,
@@ -257,7 +240,7 @@ public class CascExtractorService
         long prevManifestBytes = manifest.TotalBytesExtracted;
         progress?.Report(new ExtractionProgress(0, files.Count, "", 0, totalBytes, IsEnumerating: false));
 
-        IntPtr hStorage = CascLib.OpenStorageWithFallback(installPath, log);
+        backend.PrepareExtraction(log);
 
         try
         {
@@ -265,7 +248,6 @@ public class CascExtractorService
             int processed = 0;
             long bytesProcessed = 0;
             int warnCount = 0;
-            int suppressedWarnings = 0;
             var progressSw = System.Diagnostics.Stopwatch.StartNew();
 
             foreach (var (virtualPath, fileSize) in files)
@@ -278,7 +260,7 @@ public class CascExtractorService
                 if (destDir != null)
                     Directory.CreateDirectory(destDir);
 
-                bool extracted = ExtractSingleFile(hStorage, virtualPath, destPath, buffer, ref suppressedWarnings);
+                bool extracted = backend.ExtractFile(virtualPath, destPath, buffer);
 
                 if (extracted)
                     manifest.ExtractedFiles.Add(fsRelPath);
@@ -307,60 +289,12 @@ public class CascExtractorService
             manifest.TotalBytesExtracted = prevManifestBytes + bytesProcessed;
 
             if (warnCount > 0)
-                log?.Invoke($"Extraction complete with {warnCount} file(s) skipped ({suppressedWarnings} could not be opened or sized — these may be CDN-only files not present locally).");
+                log?.Invoke($"Extraction complete with {warnCount} file(s) skipped (could not be opened or sized — these may be CDN-only files not present locally).");
         }
         finally
         {
-            CascLib.CascCloseStorage(hStorage);
+            backend.FinishExtraction();
         }
-    }
-
-    private static bool ExtractSingleFile(IntPtr hStorage, string virtualPath, string destPath,
-        byte[] buffer, ref int suppressedWarnings)
-    {
-        if (!CascLib.CascOpenFile(hStorage, virtualPath, 0, CascLib.CASC_OPEN_BY_NAME, out IntPtr hFile)
-            || hFile == IntPtr.Zero)
-        {
-            suppressedWarnings++;
-            return false;
-        }
-
-        try
-        {
-            uint sizeHigh;
-            uint sizeLow = CascLib.CascGetFileSize(hFile, out sizeHigh);
-            if (sizeLow == 0xFFFFFFFF && Marshal.GetLastWin32Error() != 0)
-            {
-                suppressedWarnings++;
-                return false;
-            }
-
-            long totalSize = ((long)sizeHigh << 32) | sizeLow;
-            if (totalSize == 0)
-            {
-                File.WriteAllBytes(destPath, Array.Empty<byte>());
-                return true;
-            }
-
-            using var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 65536, useAsync: false);
-            fs.SetLength(totalSize);
-
-            long remaining = totalSize;
-            while (remaining > 0)
-            {
-                uint toRead = (uint)Math.Min(remaining, ChunkSize);
-                if (!CascLib.CascReadFile(hFile, buffer, toRead, out uint bytesRead) || bytesRead == 0)
-                    break;
-                fs.Write(buffer, 0, (int)bytesRead);
-                remaining -= bytesRead;
-            }
-        }
-        finally
-        {
-            CascLib.CascCloseFile(hFile);
-        }
-        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -450,11 +384,16 @@ public class CascExtractorService
         if (!Directory.Exists(folderPath))
             return "Folder does not exist.";
 
-        // D2R stores CASC index files under "Data\indices"
+        // Steam static-container installs (patch build 93236+) have a flat data\ folder
+        // with a .build.config instead of the classic Data\indices layout.
+        if (SteamStaticStorage.IsSteamStaticStorage(folderPath))
+            return null;
+
+        // Classic CASC (Battle.net) stores index files under "Data\indices".
         string indicesPath = Path.Combine(folderPath, "Data", "indices");
         if (!Directory.Exists(indicesPath))
             return "The selected folder does not appear to be a D2R installation. " +
-                   "Expected a 'Data\\indices' subfolder. " +
+                   "Expected a 'Data\\indices' subfolder (Battle.net) or a 'data\\.build.config' (Steam). " +
                    "Please select the root D2R installation folder.";
 
         return null;

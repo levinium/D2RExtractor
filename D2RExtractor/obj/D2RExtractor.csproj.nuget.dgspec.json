@@ -1,23 +1,23 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\PC930623\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj": {}
+    "C:\\Users\\wootowl\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj": {}
   },
   "projects": {
-    "C:\\Users\\PC930623\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj": {
-      "version": "1.1.4",
+    "C:\\Users\\wootowl\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj": {
+      "version": "1.1.5",
       "restore": {
-        "projectUniqueName": "C:\\Users\\PC930623\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj",
+        "projectUniqueName": "C:\\Users\\wootowl\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj",
         "projectName": "D2RExtractor",
-        "projectPath": "C:\\Users\\PC930623\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj",
-        "packagesPath": "C:\\Users\\PC930623\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\PC930623\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\obj\\",
+        "projectPath": "C:\\Users\\wootowl\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\D2RExtractor.csproj",
+        "packagesPath": "C:\\Users\\wootowl\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\wootowl\\Documents\\VSCode Projects\\Main Project\\D2RExtractor\\D2RExtractor\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\PC930623\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\wootowl\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -30,7 +30,8 @@
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net8.0-windows7.0": {
+          "net8.0-windows": {
+            "framework": "net8.0-windows7.0",
             "targetAlias": "net8.0-windows",
             "projectReferences": {}
           }
@@ -44,10 +45,12 @@
           "enableAudit": "true",
           "auditLevel": "low",
           "auditMode": "direct"
-        }
+        },
+        "SdkAnalysisLevel": "10.0.300"
       },
       "frameworks": {
-        "net8.0-windows7.0": {
+        "net8.0-windows": {
+          "framework": "net8.0-windows7.0",
           "targetAlias": "net8.0-windows",
           "dependencies": {
             "Newtonsoft.Json": {
@@ -74,7 +77,7 @@
               "privateAssets": "none"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.400/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.302/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

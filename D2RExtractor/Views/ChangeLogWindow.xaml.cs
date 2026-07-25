@@ -21,6 +21,20 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.5", [
+            "Restored Steam D2R support after the mid-2026 storage change (build 93236+). Steam's latest "
+                + "update replaced the classic CASC layout with a self-contained 'Static Build Configuration' "
+                + "format (data\\.build.config plus flat NN-NNNNNNNN.data archives) that CascLib cannot read, "
+                + "so extraction had stopped working.",
+            "Added a native, fully-local reader for the new Steam format — no CascLib.dll and, unlike the "
+                + "previous Steam workaround, NO internet connection required. It reads and decodes everything "
+                + "directly from the local game files.",
+            "The extractor now auto-detects the storage format per install: the native reader for Steam "
+                + "static-container installs, and CascLib for classic CASC installs (Battle.net). Extraction "
+                + "output is identical for both.",
+            "Battle.net extraction is unaffected and continues to use CascLib.dll."
+        ]);
+
         AddEntry("1.1.4", [
             "Fixed international file extraction. Locale files were being extracted to a 'locales' "
                 + "directory that D2R ignores in -direct mode. Files are now correctly mapped into the "
