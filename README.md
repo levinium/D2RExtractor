@@ -51,7 +51,8 @@ Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
 2. Click **+ Add Installation** and select your D2R base folder (the one containing the `Data` / `data` subfolder) - Repeat for any additional D2R folders.
 3. Click the **Gear** icon at the top right corner for settings. This allows for extraction of international files (multi-language dubbing) if needed.
 4. Click **Extract** — extraction runs in the background (Battle.net: ~30–45 min; Steam: no download required, disk-speed bound)
-5. Launch D2R with the "-direct -txt" command line options and enjoy faster load times.
+5. Make sure that your D2R folder is on Windows Defender's exclusions list (Windows Defender can slow down running D2R using the extracted files)
+6. Launch D2R with the "-direct -txt" command line options and enjoy faster load times.
 
 ### Before updating D2R
 
