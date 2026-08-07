@@ -51,6 +51,7 @@ public class D2RInstallation : INotifyPropertyChanged
             OnPropertyChanged(nameof(ManifestPath));
             OnPropertyChanged(nameof(CanExtract));
             OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanReExtract));
         }
     }
 
@@ -82,6 +83,7 @@ public class D2RInstallation : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanExtract));
             OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanReExtract));
             OnPropertyChanged(nameof(IsIdle));
             OnPropertyChanged(nameof(IsBusy));
             OnPropertyChanged(nameof(IsPartiallyExtracted));
@@ -102,6 +104,7 @@ public class D2RInstallation : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanExtract));
             OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanReExtract));
             OnPropertyChanged(nameof(IsBusy));
             OnPropertyChanged(nameof(IsPartiallyExtracted));
         }
@@ -165,6 +168,10 @@ public class D2RInstallation : INotifyPropertyChanged
     [JsonIgnore]
     public bool CanUndo => (IsExtracted || IsPartiallyExtracted) && !IsBusy;
 
+    /// <summary>Re-extract button enabled state. True when fully extracted and not busy.</summary>
+    [JsonIgnore]
+    public bool CanReExtract => IsExtracted && !IsBusy;
+
     // -----------------------------------------------------------------------
 
     /// <summary>
@@ -205,6 +212,7 @@ public class D2RInstallation : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsPartiallyExtracted));
         OnPropertyChanged(nameof(CanExtract));
         OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanReExtract));
 
         if (!IsExtracting)
         {

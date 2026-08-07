@@ -43,9 +43,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    public bool CanExtractAll => _installations.Any(i => i.CanExtract);
-    public bool CanUndoAll    => _installations.Any(i => i.CanUndo);
-    public bool CanCancelAll  => _installations.Any(i =>  i.IsExtracting || i.IsQueued);
+    public bool CanExtractAll   => _installations.Any(i => i.CanExtract);
+    public bool CanReExtractAll => _installations.Any(i => i.CanReExtract);
+    public bool CanUndoAll      => _installations.Any(i => i.CanUndo);
+    public bool CanCancelAll    => _installations.Any(i =>  i.IsExtracting || i.IsQueued);
 
     /// <summary>True while any installation is extracting, undoing, or queued.</summary>
     public bool IsAnyBusy => _installations.Any(i => i.IsBusy);
@@ -59,6 +60,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void RefreshToolbarState()
     {
         OnPropertyChanged(nameof(CanExtractAll));
+        OnPropertyChanged(nameof(CanReExtractAll));
         OnPropertyChanged(nameof(CanUndoAll));
         OnPropertyChanged(nameof(CanCancelAll));
         OnPropertyChanged(nameof(IsAnyBusy));
@@ -299,6 +301,48 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         EnqueueExtraction(install);
     }
 
+    private async void ReExtractButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.Controls.Button)?.Tag is not D2RInstallation install)
+            return;
+
+        if (!CascLib.IsDllPresent())
+        {
+            MessageBox.Show(
+                "CascLib.dll is not found next to the executable.\n\n" +
+                "Please copy CascLib.dll (x64) from Ladik's CASC Viewer next to D2RExtractor.exe and try again.",
+                "Missing CascLib.dll", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        long diskRequired = _preferences.ExtractInternationalFiles
+            ? 50L * 1024 * 1024 * 1024
+            : 48L * 1024 * 1024 * 1024;
+        string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
+        if (spaceWarning != null)
+        {
+            var proceed = MessageBox.Show(spaceWarning + "\n\nContinue anyway?",
+                "Disk Space Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (proceed != MessageBoxResult.Yes) return;
+        }
+
+        string intlNote = _preferences.ExtractInternationalFiles && !string.IsNullOrEmpty(_preferences.InternationalLanguage)
+            ? $"International files for '{_preferences.InternationalLanguage}' will also be re-extracted.\n\n"
+            : string.Empty;
+
+        var confirm = MessageBox.Show(
+            $"Re-extract D2R game files for:\n{install.FolderPath}\n\n" +
+            "This will first undo the existing extraction (deleting all previously extracted files), " +
+            "then re-extract approximately 45–70 GB of data.\n\n" +
+            intlNote +
+            "IMPORTANT: Use this to refresh after a game update, not as a substitute for 'Undo Extraction'.\n\nProceed?",
+            "Confirm Re-Extraction", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        await RunReExtractAsync(install);
+    }
+
     // -----------------------------------------------------------------------
     // Undo
     // -----------------------------------------------------------------------
@@ -466,6 +510,37 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    private async void ReExtractAll_Click(object sender, RoutedEventArgs e)
+    {
+        var targets = _installations.Where(i => i.CanReExtract).ToList();
+        if (targets.Count == 0) return;
+
+        var confirm = MessageBox.Show(
+            $"Re-extract {targets.Count} installation(s)?\n\n" +
+            string.Join("\n", targets.Select(i => $"  • {i.Name}")) + "\n\n" +
+            "Each installation will be fully undone then re-extracted (~45–70 GB, 30–90 min).\n\nProceed?",
+            "Confirm Re-Extract All", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        foreach (var install in targets)
+        {
+            long diskRequired = _preferences.ExtractInternationalFiles
+                ? 50L * 1024 * 1024 * 1024
+                : 48L * 1024 * 1024 * 1024;
+            string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
+            if (spaceWarning != null)
+            {
+                var skip = MessageBox.Show(
+                    $"[{install.Name}] {spaceWarning}\n\nSkip this installation?",
+                    "Disk Space Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (skip == MessageBoxResult.Yes) continue;
+            }
+
+            await RunReExtractAsync(install);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Shared async extract / undo helpers (used by both single and bulk)
     // -----------------------------------------------------------------------
@@ -623,6 +698,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _activeCts.Remove(install);
             cts.Dispose();
         }
+    }
+
+    private async Task RunReExtractAsync(D2RInstallation install)
+    {
+        await RunUndoAsync(install);
+        if (install.StatusText != "Ready") return; // undo failed or was cancelled
+        await RunExtractAsync(install);
     }
 
     // -----------------------------------------------------------------------
