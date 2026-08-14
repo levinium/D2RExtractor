@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using D2RExtractor.Models;
 using D2RExtractor.Native;
 using D2RExtractor.Services.Steam;
 
@@ -21,11 +22,19 @@ namespace D2RExtractor.Services;
 internal interface IExtractionBackend : IDisposable
 {
     /// <summary>
-    /// Enumerates files whose virtual path starts with one of <paramref name="prefixes"/>,
-    /// returning <c>(virtualPath, fileSize)</c> pairs. Virtual paths use the CascLib
-    /// namespace form (e.g. <c>data:data\global\…</c>) for both backends.
+    /// Identifies what kind of content key this backend puts on its <see cref="StorageEntry"/>s
+    /// (one of the <see cref="Models.KeySource"/> constants). Recorded in the manifest so a later
+    /// update knows whether the stored keys are comparable. Valid after
+    /// <see cref="EnumerateMatching"/> has run.
     /// </summary>
-    List<(string VirtualPath, ulong FileSize)> EnumerateMatching(
+    string KeySource { get; }
+
+    /// <summary>
+    /// Enumerates files whose virtual path starts with one of <paramref name="prefixes"/>.
+    /// Virtual paths use the CascLib namespace form (e.g. <c>data:data\global\…</c>) for both
+    /// backends, and each entry carries the content key harvested during the same pass.
+    /// </summary>
+    List<StorageEntry> EnumerateMatching(
         string[] prefixes, CancellationToken ct,
         Action<string>? onScanProgress, Action<long>? onIndexBuildComplete, Action<string>? log);
 
@@ -56,11 +65,17 @@ internal sealed class CascLibBackend : IExtractionBackend
 
     public CascLibBackend(string installPath) => _installPath = installPath;
 
-    public List<(string VirtualPath, ulong FileSize)> EnumerateMatching(
+    /// <summary>
+    /// CascLib supplies CKey — the MD5 of the decoded content — unless the struct layout check
+    /// failed, in which case entries come back without keys and this drops to "none".
+    /// </summary>
+    public string KeySource { get; private set; } = Models.KeySource.CascCKey;
+
+    public List<StorageEntry> EnumerateMatching(
         string[] prefixes, CancellationToken ct,
         Action<string>? onScanProgress, Action<long>? onIndexBuildComplete, Action<string>? log)
     {
-        var files = new List<(string, ulong)>();
+        var files = new List<StorageEntry>();
         IntPtr hStorage = CascLib.OpenStorageWithFallback(_installPath, log);
         try
         {
@@ -71,6 +86,12 @@ internal sealed class CascLibBackend : IExtractionBackend
         {
             CascLib.CascCloseStorage(hStorage);
         }
+
+        // If the DLL layout check rejected the offsets, no entry carries a key at all. An
+        // individual entry can legitimately lack one, so this only downgrades when none have one.
+        if (files.Count > 0 && files.TrueForAll(f => f.ContentKey == null))
+            KeySource = Models.KeySource.None;
+
         return files;
     }
 
@@ -145,11 +166,14 @@ internal sealed class SteamStaticBackend : IExtractionBackend
         _storage = SteamStaticStorage.Open(installPath, log);
     }
 
-    public List<(string VirtualPath, ulong FileSize)> EnumerateMatching(
+    /// <summary>Decided by <see cref="SteamStaticStorage"/> when it parses the text ROOT.</summary>
+    public string KeySource => _storage.KeySource;
+
+    public List<StorageEntry> EnumerateMatching(
         string[] prefixes, CancellationToken ct,
         Action<string>? onScanProgress, Action<long>? onIndexBuildComplete, Action<string>? log)
     {
-        var files = new List<(string, ulong)>();
+        var files = new List<StorageEntry>();
         foreach (var entry in _storage.EnumerateFiles(prefixes, ct, onScanProgress, onIndexBuildComplete, log))
             files.Add(entry);
         return files;

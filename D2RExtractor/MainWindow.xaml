@@ -149,11 +149,11 @@
                 </StackPanel>
             </Border>
 
-            <!-- Steam CDN note -->
+            <!-- Post-patch workflow note -->
             <Border Background="#1E1E2A" BorderBrush="#3A3A5A" BorderThickness="1" CornerRadius="3" Padding="10,6" Margin="0,4,0,0">
                 <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap">
-                    <Run Text="Steam users:"/>
-                    <Run Text=" Extraction requires an internet connection — game data is downloaded from Blizzard's CDN."
+                    <Run Text="After a D2R patch:"/>
+                    <Run Text=" click Update. Only the files the patch actually changed are rewritten — no need to undo and re-extract."
                          Foreground="#8888CC"/>
                 </TextBlock>
             </Border>
@@ -346,9 +346,11 @@
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="4,4" VerticalAlignment="Center">
-                                        <Button Content="Extract"
+                                        <!-- One contextual button: Extract / Resume / Update -->
+                                        <Button Content="{Binding PrimaryActionLabel}"
+                                                ToolTip="{Binding PrimaryActionTooltip}"
                                                 Style="{StaticResource AccentButtonStyle}"
-                                                IsEnabled="{Binding CanExtract}"
+                                                IsEnabled="{Binding CanPrimaryAction}"
                                                 Click="ExtractButton_Click"
                                                 Tag="{Binding}"
                                                 Margin="0,0,6,0" Width="80"/>
@@ -420,6 +422,12 @@
                     Click="ExtractAll_Click"
                     Padding="14,6" Margin="0,0,8,0"
                     ToolTip="Extract all installations that have not yet been extracted"/>
+            <Button Content="Update All"
+                    Style="{StaticResource AccentButtonStyle}"
+                    IsEnabled="{Binding CanUpdateAll}"
+                    Click="UpdateAll_Click"
+                    Padding="14,6" Margin="0,0,8,0"
+                    ToolTip="Check every extracted installation against the game archives and rewrite only what changed"/>
             <Button Content="Undo All"
                     Style="{StaticResource DangerButtonStyle}"
                     IsEnabled="{Binding CanUndoAll}"

@@ -1,8 +1,8 @@
 # D2R File Extractor
 
-A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC game archives for faster load times. Also lets you undo the extraction before game updates and easily re-apply the extraction after updating.
+A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC game archives for faster load times. After a game patch, one click refreshes just the files that changed instead of re-extracting everything.
 
-[⬇️ Download D2RExtractor v1.1.6 (Standalone ZIP)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_v1.1.6/D2RExtractor-Compiled-Standalone_v1.1.6.zip)
+[⬇️ Download D2RExtractor v1.1.7 (Standalone ZIP)](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_v1.1.7/D2RExtractor-Compiled-Standalone_v1.1.7.zip)
 
 [YouTube Installation & Usage Guide](https://youtu.be/SYKQdQK1_gQ)
 
@@ -12,7 +12,7 @@ A WPF desktop app with easy 1-click extraction of Diablo 2: Resurrected CASC gam
 
 D2R normally loads assets from compressed game archives at runtime. By pre-extracting the `data\global\`, `data\hd\`, and `data\local\` folders to plain files, the game loads them directly — dramatically reducing load times.
 
-This app automates that process for one or more D2R installations and keeps a manifest of every extracted file so the extraction can be fully reversed.
+This app automates that process for one or more D2R installations and keeps a manifest of every extracted file, recording each file's content key so the extraction can be both fully reversed and incrementally refreshed after a patch.
 
 The app automatically detects which storage format each installation uses:
 
@@ -54,11 +54,22 @@ Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
 5. Make sure that your D2R folder is on Windows Defender's exclusions list (Windows Defender can slow down running D2R using the extracted files)
 6. Launch D2R with the "-direct -txt" command line options and enjoy faster load times.
 
-### Before updating D2R
+### After D2R updates
 
-1. Click **Undo Extraction** — removes all extracted files using the saved manifest
-2. Update D2R normally via your game launcher
-3. Re-extract after the update
+1. Update D2R normally via your game launcher
+2. Click **Update** (the Extract button becomes Update once an installation is extracted)
+
+The app compares the game archives against your extracted files and writes only the ones that are new, changed, missing or damaged, then removes any the patch deleted. A typical patch writes a few hundred MB rather than re-extracting the full ~45 GB — much faster, and much easier on an SSD.
+
+You no longer need to undo before patching. **Undo Extraction** is still there for when you want the extracted files gone entirely.
+
+If an extraction is interrupted, the button reads **Resume** and writes only what is missing instead of starting over.
+
+### Change detection
+
+Each file's content key is read from the game storage during the scan the app already performs, so tracking costs nothing extra. An update rewrites a file when its key differs from the recorded one, or when the file on disk is missing or the wrong size.
+
+Settings has an optional **"Verify extracted file contents during Update"** that checksums every extracted file instead of comparing sizes. It catches files corrupted or edited outside the app, reads the whole extraction (several extra minutes), and still writes only the files that differ.
 
 ---
 
@@ -74,7 +85,7 @@ D2RExtractor\
     │   ├── D2RInstallation.cs       Observable model for each managed installation
     │   └── ExtractionManifest.cs    Per-install record of extracted files
     ├── Services\
-    │   ├── CascExtractorService.cs  Format detection + extract / undo logic
+    │   ├── CascExtractorService.cs  Format detection + extract / update / undo logic
     │   ├── IExtractionBackend.cs     Backend abstraction (CascLib vs Steam native)
     │   ├── ManifestService.cs       JSON settings + manifest persistence
     │   └── Steam\                   Native reader for the Steam static-container format
@@ -90,4 +101,6 @@ D2RExtractor\
 ```
 
 **Settings** are stored in: `%AppData%\D2RExtractor\settings.json`
-**Manifests** are stored in: `<D2RPath>\data\.extraction_manifest.json`
+**Manifests** are stored in: `<D2RPath>\data\.extraction_manifest.json` (header) and `<D2RPath>\data\.extraction_files.txt` (one record per extracted file: path, content key, size)
+
+> Manifests written by 1.1.7 are not readable by 1.1.6 and earlier — those versions would see an empty file list and their Undo would remove nothing. Existing 1.1.6 manifests are upgraded automatically on the first Update.

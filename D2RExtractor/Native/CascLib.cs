@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using D2RExtractor.Models;
 
 namespace D2RExtractor.Native;
 
@@ -30,6 +31,9 @@ internal static class CascLib
     /// </summary>
     internal const int CASC_MAX_PATH = 260; // Windows MAX_PATH
 
+    /// <summary>Size of a CASC content/encoding key (an MD5 digest).</summary>
+    internal const int MD5_HASH_SIZE = 16;
+
     /// <summary>Invalid file data ID sentinel value.</summary>
     internal const uint CASC_INVALID_ID = 0xFFFFFFFF;
 
@@ -50,8 +54,8 @@ internal static class CascLib
     ///
     ///   Offset   Size  Field
     ///      0      260  szFileName  (char[MAX_PATH])
-    ///    260       16  CKey        (BYTE[MD5_HASH_SIZE]) — unmapped, for offset only
-    ///    276       16  EKey        (BYTE[MD5_HASH_SIZE]) — unmapped, for offset only
+    ///    260       16  CKey        (BYTE[MD5_HASH_SIZE]) — MD5 of the *decoded* file content
+    ///    276       16  EKey        (BYTE[MD5_HASH_SIZE]) — MD5 of the encoded (BLTE) blob
     ///    292        4  padding     (MSVC aligns ULONGLONG to 8 bytes: 292→296)
     ///    296        8  TagBitMask  (ULONGLONG)
     ///    304        8  FileSize    (ULONGLONG)
@@ -63,17 +67,33 @@ internal static class CascLib
     ///    336        4  bFileAvailable (DWORD bit-field; non-zero = available)
     ///    340        4  NameType    (CASC_NAME_TYPE enum)
     ///   Total: 344 bytes
+    ///
+    /// Every field is a value type, which makes the struct fully *blittable*: the runtime
+    /// passes a pinned pointer to the managed struct instead of building a marshalling stub
+    /// and allocating an ANSI→UTF-16 string for every entry. That matters because the
+    /// enumeration visits millions of entries to keep ~150k matches (see EnumerateFiles).
+    ///
+    /// Two things are deliberate and must not be "simplified":
+    ///   • szFileName is a fixed byte buffer, not a [MarshalAs(ByValTStr)] string. Strings are
+    ///     only materialised for entries that actually match a target prefix.
+    ///   • CKey/EKey are fixed byte buffers, not byte[]. In an explicit-layout struct the CLR
+    ///     requires object-reference fields to be pointer-aligned; 260 % 8 == 4, so a byte[]
+    ///     at that offset compiles fine and then throws TypeLoadException at first use.
     /// </summary>
-    [StructLayout(LayoutKind.Explicit, CharSet = CharSet.Ansi)]
-    internal struct CASC_FIND_DATA
+    [StructLayout(LayoutKind.Explicit, Size = 344)]
+    internal unsafe struct CASC_FIND_DATA
     {
-        /// <summary>Full virtual path of the file (e.g. "data\global\ui\..."). Null-terminated.</summary>
+        /// <summary>Full virtual path of the file (e.g. "data:data\global\..."), NUL-terminated ASCII.</summary>
         [FieldOffset(0)]
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CASC_MAX_PATH)]
-        public string szFileName;
+        public fixed byte szFileName[CASC_MAX_PATH];
 
-        // CKey[16] at offset 260 and EKey[16] at offset 276 are not mapped —
-        // we only need szFileName and the fields below.
+        /// <summary>Content key — the MD5 of the file's decoded content.</summary>
+        [FieldOffset(260)]
+        public fixed byte CKey[MD5_HASH_SIZE];
+
+        /// <summary>Encoding key — identifies the stored (BLTE-encoded) blob.</summary>
+        [FieldOffset(276)]
+        public fixed byte EKey[MD5_HASH_SIZE];
 
         [FieldOffset(296)]
         public ulong TagBitMask;
@@ -370,9 +390,91 @@ internal static class CascLib
         return -1;
     }
 
+    // -----------------------------------------------------------------------
+    // CASC_FIND_DATA field access
+    //
+    // These live outside EnumerateFiles because C# 12 forbids unsafe code inside an iterator
+    // (CS1629), and EnumerateFiles is one. They also keep the hot path allocation-free: the scan
+    // visits millions of entries, so nothing is materialised until a prefix actually matches.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Reads szFileName as a string, normalising forward slashes to backslashes.</summary>
+    private static unsafe string ReadFileName(ref CASC_FIND_DATA d)
+    {
+        fixed (byte* p = d.szFileName)
+        {
+            int len = 0;
+            while (len < CASC_MAX_PATH && p[len] != 0) len++;
+            return System.Text.Encoding.ASCII.GetString(p, len).Replace('/', '\\');
+        }
+    }
+
+    /// <summary>
+    /// Case-insensitive ASCII prefix test performed directly on the raw buffer, treating '/' as '\'.
+    /// Avoids allocating a string for the ~millions of entries that do not match.
+    /// </summary>
+    private static unsafe bool StartsWithAsciiIgnoreCase(ref CASC_FIND_DATA d, string prefix)
+    {
+        fixed (byte* p = d.szFileName)
+        {
+            if (prefix.Length > CASC_MAX_PATH) return false;
+            for (int i = 0; i < prefix.Length; i++)
+            {
+                byte b = p[i];
+                if (b == 0) return false;
+                char c = (char)b;
+                if (c == '/') c = '\\';
+                if (char.ToLowerInvariant(c) != char.ToLowerInvariant(prefix[i])) return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Copies the content key out as lower-case hex, or returns null if it is all zeroes.
+    /// The copy is mandatory: <c>findData</c> is overwritten by the next CascFindNextFile call.
+    /// </summary>
+    private static unsafe string? ReadContentKeyHex(ref CASC_FIND_DATA d)
+    {
+        Span<byte> key = stackalloc byte[MD5_HASH_SIZE];
+        bool nonZero = false;
+        fixed (byte* c = d.CKey)
+        {
+            for (int i = 0; i < MD5_HASH_SIZE; i++)
+            {
+                key[i] = c[i];
+                if (c[i] != 0) nonZero = true;
+            }
+        }
+        return nonZero ? Convert.ToHexString(key).ToLowerInvariant() : null;
+    }
+
+    /// <summary>
+    /// Cheap sanity check that the hard-coded field offsets match this CascLib.dll build.
+    /// <para>
+    /// <see cref="CASC_MAX_PATH"/> is a build-time assumption. Before content keys were read it
+    /// could only produce visibly garbled file names; now a wrong value would silently yield
+    /// garbage keys, which would make an update either rewrite everything or nothing. szPlainName
+    /// points into szFileName, so if the offsets are right the delta between them must land inside
+    /// the buffer — and because the struct is blittable, that pointer refers to our own memory.
+    /// </para>
+    /// </summary>
+    private static unsafe bool LayoutLooksSane(ref CASC_FIND_DATA d)
+    {
+        fixed (byte* p = d.szFileName)
+        {
+            long delta = (long)d.szPlainName - (long)p;
+            if (delta < 0 || delta >= CASC_MAX_PATH) return false;
+
+            int len = 0;
+            while (len < CASC_MAX_PATH && p[len] != 0) len++;
+            return len > 0 && len < CASC_MAX_PATH;
+        }
+    }
+
     /// <summary>
     /// Enumerates all locally-available files in the storage whose virtual path begins with
-    /// one of the given prefixes. Yields (virtualPath, fileSize) tuples.
+    /// one of the given prefixes.
     /// <para>
     /// <paramref name="onScanProgress"/> is called approximately every 500 ms with the current
     /// file name being scanned (including non-matching files), so the caller can update the UI
@@ -385,7 +487,7 @@ internal static class CascLib
     /// A hard fallback cap is used if the file count query fails.
     /// </para>
     /// </summary>
-    internal static IEnumerable<(string VirtualPath, ulong FileSize)> EnumerateFiles(
+    internal static IEnumerable<StorageEntry> EnumerateFiles(
         IntPtr hStorage,
         string[] prefixFilters,
         CancellationToken ct,
@@ -422,6 +524,16 @@ internal static class CascLib
 
         onIndexBuildComplete?.Invoke(indexSw.ElapsedMilliseconds);
 
+        // Validate the struct offsets once against this DLL build before trusting any content key.
+        bool keysUsable = LayoutLooksSane(ref findData);
+        if (!keysUsable)
+        {
+            onDiagnosticLog?.Invoke(
+                "WARNING: CASC_FIND_DATA layout check failed — this CascLib.dll build does not match " +
+                $"the expected offsets (CASC_MAX_PATH={CASC_MAX_PATH}). Content keys will not be read; " +
+                "updates will fall back to size-only comparison.");
+        }
+
         long totalEntries = 0;
         var  sw           = System.Diagnostics.Stopwatch.StartNew();
 
@@ -440,34 +552,38 @@ internal static class CascLib
                     break;
                 }
 
-                string? fname = findData.szFileName;
-
                 // Milestone progress every 500 k entries.
                 if (totalEntries % 500_000 == 0)
                     onDiagnosticLog?.Invoke($"CASC scan: {totalEntries:N0} entries processed so far…");
 
-                // Keep the UI alive with a progress ping every ~500 ms.
+                // Keep the UI alive with a progress ping every ~500 ms. This is the only place a
+                // non-matching entry's name is materialised — roughly twice a second, not millions
+                // of times.
                 if (onScanProgress != null && sw.ElapsedMilliseconds >= 500)
                 {
-                    onScanProgress(fname ?? string.Empty);
+                    onScanProgress(ReadFileName(ref findData));
                     sw.Restart();
                 }
 
-                // Try to match this entry.
+                // Try to match this entry against the target prefixes, working on the raw buffer.
                 // Note: bFileAvailable may be 0 for CDN-based Steam installs where data
                 // isn't locally cached but is still extractable via CDN download.
-                if (!string.IsNullOrEmpty(fname))
+                bool matched = false;
+                foreach (var prefix in prefixFilters)
                 {
-                    // Normalize path separator: some CascLib builds return forward slashes.
-                    string name = fname.Replace('/', '\\');
-                    foreach (var prefix in prefixFilters)
+                    if (StartsWithAsciiIgnoreCase(ref findData, prefix))
                     {
-                        if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                        {
-                            yield return (name, findData.FileSize);
-                            break;
-                        }
+                        matched = true;
+                        break;
                     }
+                }
+
+                if (matched)
+                {
+                    yield return new StorageEntry(
+                        ReadFileName(ref findData),
+                        findData.FileSize,
+                        keysUsable ? ReadContentKeyHex(ref findData) : null);
                 }
 
             } while (CascFindNextFile(hFind, out findData));

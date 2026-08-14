@@ -25,7 +25,8 @@ public class D2RInstallation : INotifyPropertyChanged
 
     // Cached manifest completion state — set by RefreshState(...).
     private bool _isExtracted;
-    private bool _isPartiallyExtracted;
+    private bool _isInterrupted;
+    private bool _isInternationalPending;
 
     // -----------------------------------------------------------------------
     // Persisted properties (saved to settings.json)
@@ -49,8 +50,7 @@ public class D2RInstallation : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsExtracted));
             OnPropertyChanged(nameof(IsPartiallyExtracted));
             OnPropertyChanged(nameof(ManifestPath));
-            OnPropertyChanged(nameof(CanExtract));
-            OnPropertyChanged(nameof(CanUndo));
+            RaiseActionState();
         }
     }
 
@@ -67,9 +67,27 @@ public class D2RInstallation : INotifyPropertyChanged
     [JsonIgnore]
     public bool IsExtracted => _isExtracted;
 
-    /// <summary>True when the extraction manifest exists on disk but is not complete (interrupted extraction).</summary>
+    /// <summary>
+    /// True when the extraction is not currently in the state the user asked for: either it was
+    /// interrupted, or the international setting changed since it ran.
+    /// </summary>
     [JsonIgnore]
-    public bool IsPartiallyExtracted => _isPartiallyExtracted;
+    public bool IsPartiallyExtracted => _isInterrupted || _isInternationalPending;
+
+    /// <summary>
+    /// True when a previous extraction was interrupted (manifest present but marked incomplete).
+    /// <para>
+    /// Distinct from <see cref="IsInternationalPending"/> because the two need different handling:
+    /// an interrupted extraction is resumed by writing the files that are missing, whereas a
+    /// pending language change rewrites files that already exist.
+    /// </para>
+    /// </summary>
+    [JsonIgnore]
+    public bool IsInterrupted => _isInterrupted;
+
+    /// <summary>True when the base extraction is complete but international files are missing or in the wrong language.</summary>
+    [JsonIgnore]
+    public bool IsInternationalPending => _isInternationalPending;
 
     /// <summary>True while an extraction or undo operation is running.</summary>
     [JsonIgnore]
@@ -80,11 +98,10 @@ public class D2RInstallation : INotifyPropertyChanged
         {
             _isExtracting = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(CanExtract));
-            OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(IsIdle));
             OnPropertyChanged(nameof(IsBusy));
             OnPropertyChanged(nameof(IsPartiallyExtracted));
+            RaiseActionState();
         }
     }
 
@@ -100,10 +117,9 @@ public class D2RInstallation : INotifyPropertyChanged
         {
             _isQueued = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(CanExtract));
-            OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(IsBusy));
             OnPropertyChanged(nameof(IsPartiallyExtracted));
+            RaiseActionState();
         }
     }
 
@@ -157,9 +173,39 @@ public class D2RInstallation : INotifyPropertyChanged
         set { _totalFiles = value; OnPropertyChanged(); }
     }
 
-    /// <summary>Extract button enabled state. True when not fully extracted and not busy (includes Partial state).</summary>
+    /// <summary>True when a full extraction is what the primary button would start.</summary>
     [JsonIgnore]
-    public bool CanExtract => !IsExtracted && !IsBusy;
+    public bool CanExtract => !IsExtracted && !IsPartiallyExtracted && !IsBusy;
+
+    /// <summary>
+    /// True when an extraction exists that can be brought in line with the archives instead of
+    /// being redone — including an interrupted one, which resumes rather than restarting.
+    /// </summary>
+    [JsonIgnore]
+    public bool CanUpdate => (IsExtracted || IsPartiallyExtracted) && !IsBusy;
+
+    /// <summary>Primary action button enabled state.</summary>
+    [JsonIgnore]
+    public bool CanPrimaryAction => CanExtract || CanUpdate;
+
+    /// <summary>
+    /// Label for the primary action button. The same button extracts, resumes or updates depending
+    /// on what this installation currently needs.
+    /// </summary>
+    [JsonIgnore]
+    public string PrimaryActionLabel =>
+        IsExtracted     ? "Update"
+        : IsInterrupted ? "Resume"
+        : IsPartiallyExtracted ? "Update"
+        : "Extract";
+
+    /// <summary>Tooltip explaining what the primary action button will do right now.</summary>
+    [JsonIgnore]
+    public string PrimaryActionTooltip =>
+        IsExtracted            ? "Compare the game archives against the extracted files and rewrite only what changed"
+        : IsInterrupted        ? "Resume the interrupted extraction — files already written are kept"
+        : IsInternationalPending ? "Apply the current international file settings"
+        : "Extract the game archives to this installation folder";
 
     /// <summary>Undo button enabled state. True when any manifest exists (full or partial) and not busy.</summary>
     [JsonIgnore]
@@ -195,23 +241,43 @@ public class D2RInstallation : INotifyPropertyChanged
         _isExtracted = manifestIsComplete == true
                        && (!internationalEnabled || intlSatisfied);
 
-        // Partially extracted = interrupted extraction OR base done but int'l still needed/wrong language
-        _isPartiallyExtracted = manifestIsComplete == false
-                                || (manifestIsComplete == true
-                                    && internationalEnabled
-                                    && !intlSatisfied);
+        // An interrupted extraction and a pending international change both read as "Partial" to
+        // the user, but they are different situations — see IsInterrupted.
+        _isInterrupted = manifestIsComplete == false;
+        _isInternationalPending = manifestIsComplete == true && internationalEnabled && !intlSatisfied;
 
         OnPropertyChanged(nameof(IsExtracted));
         OnPropertyChanged(nameof(IsPartiallyExtracted));
-        OnPropertyChanged(nameof(CanExtract));
-        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(IsInterrupted));
+        OnPropertyChanged(nameof(IsInternationalPending));
+        RaiseActionState();
 
         if (!IsExtracting)
         {
-            StatusText = _isExtracted          ? "Extracted"
-                       : _isPartiallyExtracted ? "Partial"
+            StatusText = _isExtracted           ? "Extracted"
+                       : IsPartiallyExtracted   ? "Partial"
                        : "Ready";
         }
+    }
+
+    /// <summary>
+    /// Re-raises every property the action buttons bind to.
+    ///
+    /// <para>
+    /// Called from all four places that can change them — <see cref="RefreshState"/>, the
+    /// <see cref="IsExtracting"/> and <see cref="IsQueued"/> setters, and the
+    /// <see cref="FolderPath"/> setter. Missing one leaves a button showing a stale label or
+    /// enabled state, so they all funnel through here rather than each listing the properties.
+    /// </para>
+    /// </summary>
+    private void RaiseActionState()
+    {
+        OnPropertyChanged(nameof(CanExtract));
+        OnPropertyChanged(nameof(CanUpdate));
+        OnPropertyChanged(nameof(CanPrimaryAction));
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(PrimaryActionLabel));
+        OnPropertyChanged(nameof(PrimaryActionTooltip));
     }
 
     // -----------------------------------------------------------------------
