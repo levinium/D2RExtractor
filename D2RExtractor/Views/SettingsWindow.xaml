@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Icon="/Resources/app.ico"
-        Width="440" Height="290"
-        MinWidth="360" MinHeight="270"
+        Width="440" Height="400"
+        MinWidth="360" MinHeight="380"
         WindowStartupLocation="CenterOwner"
         Background="#1A1A1A"
         ResizeMode="NoResize">
@@ -133,6 +133,18 @@
                            Foreground="{StaticResource MutedBrush}" FontSize="11"
                            TextWrapping="Wrap" Margin="20,4,0,0"
                            x:Name="IntlDescriptionText" Visibility="Collapsed"/>
+
+                <Border Height="1" Background="#333" Margin="0,14,0,12"/>
+
+                <CheckBox x:Name="VerifyContentsCheckBox"
+                          Foreground="{StaticResource TextBrush}" FontSize="13"
+                          VerticalContentAlignment="Center">
+                    <TextBlock Text="Verify extracted file contents during Update"
+                               Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
+                </CheckBox>
+                <TextBlock Text="Checksums every extracted file instead of comparing sizes. Catches files corrupted or edited outside the app, but reads the whole extraction and takes several extra minutes. Still writes only the files that differ."
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           TextWrapping="Wrap" Margin="20,4,0,0"/>
             </StackPanel>
         </Border>
 

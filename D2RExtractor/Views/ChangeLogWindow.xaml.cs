@@ -21,6 +21,31 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.7", [
+            "Added incremental updates. After a D2R patch you no longer need to undo and re-extract "
+                + "45 GB. Once an installation is extracted the Extract button becomes Update: it compares "
+                + "the game archives against your extracted files and writes only the ones that are new, "
+                + "changed, missing or damaged, and removes files the patch deleted. A typical patch now "
+                + "writes a few hundred MB instead of tens of gigabytes.",
+            "Interrupted extractions now resume instead of restarting. The button reads Resume and writes "
+                + "only the files that are missing, rather than deleting everything already written.",
+            "Changing the international language (or turning international files on or off) is now just "
+                + "another update — only the affected files are rewritten. Turning international files back "
+                + "off now correctly restores the base English files, which it previously did not.",
+            "Added Update All alongside Extract All, and a 'Verify extracted file contents during Update' "
+                + "setting that checksums every extracted file instead of comparing sizes. It catches files "
+                + "corrupted or edited outside the app, takes several extra minutes, and still writes only "
+                + "the files that differ.",
+            "The manifest no longer writes gigabytes of its own data. It used to be rewritten in full every "
+                + "500 files, costing about 1.5 GB of writes over a typical 150,000-file extraction; the file "
+                + "list now lives in an append-only sidecar, which brings that down to a single ~11 MB write.",
+            "Fixed a bug where a manifest damaged by a crash or power loss could strand an entire extraction: "
+                + "the app read the installation as never extracted, which disabled Undo and left ~45 GB of "
+                + "files with nothing referencing them. Manifest writes are now atomic.",
+            "Faster archive scanning on Battle.net installs, and corrected a stale note claiming Steam "
+                + "extraction needs an internet connection — it has not since 1.1.5."
+        ]);
+
         AddEntry("1.1.6", [
             "Fixed a Steam extraction bug that caused an error on game launch. The Steam storage omits "
                 + "path separators for some entries, so a few thousand files (e.g. sound files under "

@@ -17,7 +17,8 @@ public partial class SettingsWindow : Window
         Preferences = new AppPreferences
         {
             ExtractInternationalFiles = current.ExtractInternationalFiles,
-            InternationalLanguage = current.InternationalLanguage
+            InternationalLanguage = current.InternationalLanguage,
+            VerifyFileContents = current.VerifyFileContents
         };
 
         // Populate language dropdown.
@@ -26,6 +27,7 @@ public partial class SettingsWindow : Window
 
         // Set initial selections.
         InternationalCheckBox.IsChecked = current.ExtractInternationalFiles;
+        VerifyContentsCheckBox.IsChecked = current.VerifyFileContents;
 
         int langIdx = current.InternationalLanguage != null
             ? System.Array.FindIndex(AppPreferences.AvailableLanguages, l => l.Code == current.InternationalLanguage)
@@ -48,6 +50,7 @@ public partial class SettingsWindow : Window
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         Preferences.ExtractInternationalFiles = InternationalCheckBox.IsChecked == true;
+        Preferences.VerifyFileContents = VerifyContentsCheckBox.IsChecked == true;
 
         if (Preferences.ExtractInternationalFiles && LanguageComboBox.SelectedIndex >= 0)
             Preferences.InternationalLanguage = AppPreferences.AvailableLanguages[LanguageComboBox.SelectedIndex].Code;

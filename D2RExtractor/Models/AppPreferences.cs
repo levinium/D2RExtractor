@@ -14,6 +14,18 @@ public class AppPreferences
     /// </summary>
     public string? InternationalLanguage { get; set; }
 
+    /// <summary>
+    /// Whether Update should also checksum every extracted file against its recorded content key,
+    /// rather than trusting the recorded key plus the file's size on disk.
+    ///
+    /// <para>
+    /// Off by default: it reads and hashes the entire extraction (tens of GB), which takes several
+    /// minutes. It catches files that were corrupted or edited outside the app — cases the normal
+    /// comparison cannot see because the file's size did not change. It never causes extra writes.
+    /// </para>
+    /// </summary>
+    public bool VerifyFileContents { get; set; }
+
     /// <summary>Available language codes and their display names.</summary>
     public static readonly (string Code, string Name)[] AvailableLanguages =
     [

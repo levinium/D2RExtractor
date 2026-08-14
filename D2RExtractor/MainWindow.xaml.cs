@@ -13,6 +13,7 @@ using D2RExtractor.Models;
 using D2RExtractor.Native;
 using D2RExtractor.Services;
 using MessageBox = System.Windows.MessageBox;
+using OperationKind = D2RExtractor.Services.CascExtractorService.OperationKind;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxImage = System.Windows.MessageBoxImage;
 using MessageBoxResult = System.Windows.MessageBoxResult;
@@ -30,8 +31,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     // Installations waiting in the Extract All / Undo All queue
     private readonly HashSet<D2RInstallation> _pendingQueue = new();
 
-    // FIFO queue for sequential extraction — shared by single Extract and Extract All
-    private readonly Queue<D2RInstallation> _extractQueue = new();
+    // FIFO queue for sequential extraction/update — shared by the per-row button and the bulk
+    // buttons. The operation travels with the installation because Extract and Update are queued
+    // through the same path but must not be confused: Extract can delete first, Update never does.
+    private readonly Queue<(D2RInstallation Install, OperationKind Kind)> _extractQueue = new();
     private bool _extractQueueRunning;
     private AppPreferences _preferences = new();
 
@@ -44,6 +47,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     public bool CanExtractAll => _installations.Any(i => i.CanExtract);
+    public bool CanUpdateAll  => _installations.Any(i => i.CanUpdate);
     public bool CanUndoAll    => _installations.Any(i => i.CanUndo);
     public bool CanCancelAll  => _installations.Any(i =>  i.IsExtracting || i.IsQueued);
 
@@ -59,6 +63,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void RefreshToolbarState()
     {
         OnPropertyChanged(nameof(CanExtractAll));
+        OnPropertyChanged(nameof(CanUpdateAll));
         OnPropertyChanged(nameof(CanUndoAll));
         OnPropertyChanged(nameof(CanCancelAll));
         OnPropertyChanged(nameof(IsAnyBusy));
@@ -208,12 +213,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     // Extract queue
     // -----------------------------------------------------------------------
 
-    private void EnqueueExtraction(D2RInstallation install)
+    private void EnqueueOperation(D2RInstallation install, OperationKind kind)
     {
         if (install.IsQueued || install.IsExtracting) return; // guard against double-enqueue
         install.IsQueued = true;
         install.StatusText = "Queued";
-        _extractQueue.Enqueue(install);
+        _extractQueue.Enqueue((install, kind));
         ProcessExtractQueue();
     }
 
@@ -225,10 +230,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             while (_extractQueue.Count > 0)
             {
-                var install = _extractQueue.Dequeue();
+                var (install, kind) = _extractQueue.Dequeue();
                 if (!install.IsQueued) continue; // was cancelled while waiting
                 install.IsQueued = false;
-                await RunExtractAsync(install);
+
+                if (kind == OperationKind.Update)
+                    await RunUpdateAsync(install);
+                else
+                    await RunExtractAsync(install);
             }
         }
         finally
@@ -237,12 +246,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    /// <summary>True when <paramref name="install"/> is waiting in the extract/update queue.</summary>
+    private bool IsInExtractQueue(D2RInstallation install) =>
+        _extractQueue.Any(item => item.Install == install);
+
     private void DequeueExtraction(D2RInstallation install)
     {
         // Queue<T> has no Remove(item) — rebuild without the target
-        var remaining = _extractQueue.Where(i => i != install).ToList();
+        var remaining = _extractQueue.Where(item => item.Install != install).ToList();
         _extractQueue.Clear();
-        foreach (var i in remaining) _extractQueue.Enqueue(i);
+        foreach (var item in remaining) _extractQueue.Enqueue(item);
         install.IsQueued = false;
         RefreshInstallState(install);
         Log($"[{install.Name}] Dequeued.");
@@ -252,6 +265,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     // Extract
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// The single contextual action button: extracts, resumes or updates depending on what this
+    /// installation currently needs. The two paths are deliberately kept apart — an update must
+    /// never fall through to the extraction path, which deletes the existing files first.
+    /// </summary>
     private void ExtractButton_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as System.Windows.Controls.Button)?.Tag is not D2RInstallation install)
@@ -266,6 +284,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
+        var manifest = ManifestService.LoadManifest(install);
+        var kind = CascExtractorService.PlanOperation(
+            manifest, _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage);
+
+        if (kind == OperationKind.Update)
+        {
+            if (!ConfirmUpdate(install)) return;
+            EnqueueOperation(install, OperationKind.Update);
+            return;
+        }
+
         long diskRequired = _preferences.ExtractInternationalFiles
             ? 50L * 1024 * 1024 * 1024   // ~50 GB (base ~45 GB + one language ~1-2 GB)
             : 48L * 1024 * 1024 * 1024;  // ~48 GB base only
@@ -277,26 +306,52 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (proceed != MessageBoxResult.Yes) return;
         }
 
-        string partialNote = install.IsPartiallyExtracted
-            ? "This installation has a partial extraction. The partial files will be cleaned up automatically before starting fresh.\n\n"
-            : string.Empty;
-
         string intlNote = _preferences.ExtractInternationalFiles && !string.IsNullOrEmpty(_preferences.InternationalLanguage)
             ? $"International files for '{_preferences.InternationalLanguage}' will also be extracted, replacing base English audio/text.\n\n"
             : string.Empty;
 
         var confirm = MessageBox.Show(
-            partialNote +
             $"Extract D2R game files for:\n{install.FolderPath}\n\n" +
             "This will extract approximately 45–70 GB of data (depending on whether international files are enabled) " +
             "and may take 30–90 minutes.\n\n" +
             intlNote +
-            "IMPORTANT: Before updating D2R, use 'Undo Extraction' first.\n\nStart extraction?",
+            "After a D2R update, use 'Update' to refresh only the files that changed.\n\nStart extraction?",
             "Confirm Extraction", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (confirm != MessageBoxResult.Yes) return;
 
-        EnqueueExtraction(install);
+        EnqueueOperation(install, OperationKind.Extract);
+    }
+
+    /// <summary>
+    /// Confirmation for an update or resume. Deliberately lighter than the extraction dialog: no
+    /// size or duration warning, and no disk-space gate, because the whole point is that it writes
+    /// only the difference. What it does need to say is that the comparison itself takes a while.
+    /// </summary>
+    private bool ConfirmUpdate(D2RInstallation install)
+    {
+        string what = install.IsInterrupted
+            ? "Resume the interrupted extraction for:"
+            : "Check for changed game files in:";
+
+        string verifyNote = _preferences.VerifyFileContents
+            ? "\n'Verify extracted file contents' is on, so every extracted file will also be " +
+              "checksummed. That reads the whole extraction and takes noticeably longer, but still " +
+              "only writes files that differ.\n"
+            : string.Empty;
+
+        var confirm = MessageBox.Show(
+            $"{what}\n{install.FolderPath}\n\n" +
+            "The game archives will be compared against the extracted files. Only files that are " +
+            "new, changed, missing or damaged get written, and files the game no longer ships are " +
+            "removed.\n\n" +
+            "Comparing takes a few minutes before anything is written.\n" +
+            verifyNote +
+            "\nProceed?",
+            install.IsInterrupted ? "Confirm Resume" : "Confirm Update",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        return confirm == MessageBoxResult.Yes;
     }
 
     // -----------------------------------------------------------------------
@@ -316,7 +371,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             $"Undo extraction for:\n{install.FolderPath}\n\n" +
             filesDesc + "\n" +
             "The original CASC archives are NOT affected — you can re-extract at any time.\n\n" +
-            "IMPORTANT: Do this before updating D2R.\n\nProceed?",
+            "Note: you no longer need to undo before updating D2R. Use 'Update' afterwards to " +
+            "refresh only the files the patch changed.\n\nProceed?",
             "Confirm Undo Extraction", MessageBoxButton.YesNo, MessageBoxImage.Warning);
 
         if (confirm != MessageBoxResult.Yes) return;
@@ -337,7 +393,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
 
         // Dequeue from extraction queue if waiting there.
-        if (install.IsQueued && _extractQueue.Contains(install))
+        if (install.IsQueued && IsInExtractQueue(install))
         {
             DequeueExtraction(install);
             return;
@@ -366,7 +422,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             cts.Cancel();
 
         // Clear extraction queue.
-        foreach (var install in _extractQueue.ToList())
+        foreach (var (install, _) in _extractQueue.ToList())
         {
             install.IsQueued = false;
             RefreshInstallState(install);
@@ -393,17 +449,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var targets = _installations.Where(i => i.CanExtract).ToList();
         if (targets.Count == 0) return;
 
-        int partialCount = targets.Count(i => i.IsPartiallyExtracted);
-        string partialNote = partialCount > 0
-            ? $"\nNote: {partialCount} installation(s) with partial extractions will be cleaned up first.\n"
-            : string.Empty;
-
         var confirm = MessageBox.Show(
             $"Queue {targets.Count} installation(s) for extraction?\n\n" +
-            string.Join("\n", targets.Select(i => $"  • {i.Name}{(i.IsPartiallyExtracted ? " (partial)" : "")}")) + "\n" +
-            partialNote +
+            string.Join("\n", targets.Select(i => $"  • {i.Name}")) + "\n" +
             "\nEach extraction writes ~45–70 GB (depending on settings) and takes 30–90 minutes.\n\n" +
-            "IMPORTANT: Before updating D2R, use Undo All first.\n\nProceed?",
+            "After a D2R update, use Update All to refresh only the files that changed.\n\nProceed?",
             "Confirm Extract All", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (confirm != MessageBoxResult.Yes) return;
@@ -424,8 +474,37 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 if (skip == MessageBoxResult.Yes) continue;
             }
 
-            EnqueueExtraction(install);
+            EnqueueOperation(install, OperationKind.Extract);
         }
+    }
+
+    /// <summary>
+    /// Queues every extracted installation for an update. No disk-space gate: an update writes only
+    /// the difference, so demanding tens of gigabytes free would nag for no reason.
+    /// </summary>
+    private void UpdateAll_Click(object sender, RoutedEventArgs e)
+    {
+        var targets = _installations.Where(i => i.CanUpdate).ToList();
+        if (targets.Count == 0) return;
+
+        int resumeCount = targets.Count(i => i.IsInterrupted);
+        string resumeNote = resumeCount > 0
+            ? $"\nNote: {resumeCount} interrupted extraction(s) will be resumed — files already written are kept.\n"
+            : string.Empty;
+
+        var confirm = MessageBox.Show(
+            $"Check {targets.Count} installation(s) against the game archives?\n\n" +
+            string.Join("\n", targets.Select(i => $"  • {i.Name}{(i.IsInterrupted ? " (interrupted)" : "")}")) + "\n" +
+            resumeNote +
+            "\nOnly files that are new, changed, missing or damaged are written; files the game no " +
+            "longer ships are removed.\n\n" +
+            "Each installation takes a few minutes to compare before anything is written.\n\nProceed?",
+            "Confirm Update All", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        foreach (var install in targets)
+            EnqueueOperation(install, OperationKind.Update);
     }
 
     private async void UndoAll_Click(object sender, RoutedEventArgs e)
@@ -467,8 +546,128 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     // -----------------------------------------------------------------------
-    // Shared async extract / undo helpers (used by both single and bulk)
+    // Shared async extract / update / undo helpers (used by both single and bulk)
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds the progress handler shared by extract and update.
+    ///
+    /// <para>
+    /// An update has phases that write nothing and can run for a minute or more — listing the
+    /// archives, diffing them against the disk, checksumming — so those report an indeterminate bar
+    /// with a phase name rather than a percentage stuck at zero.
+    /// </para>
+    /// </summary>
+    private Progress<ExtractionProgress> CreateProgressReporter(D2RInstallation install) =>
+        new(p =>
+        {
+            bool indeterminate = p.Phase is ExtractionPhase.Enumerating;
+            install.IsEnumerating = indeterminate;
+
+            if (p.Phase == ExtractionPhase.Enumerating)
+            {
+                install.StatusText = p.FilesProcessed > 0
+                    ? $"Enumerating… ({p.FilesProcessed:N0} found)"
+                    : "Enumerating files…";
+                install.EnumeratingFile = p.CurrentFile;
+                return;
+            }
+
+            install.EnumeratingFile = string.Empty;
+            double pct = p.TotalFiles > 0 ? (p.FilesProcessed * 100.0 / p.TotalFiles) : 0;
+            install.Progress = pct;
+            install.FilesExtracted = p.FilesProcessed;
+            install.TotalFiles = p.TotalFiles;
+
+            install.StatusText = p.Phase switch
+            {
+                ExtractionPhase.Comparing => $"Comparing {p.FilesProcessed:N0} / {p.TotalFiles:N0}",
+                ExtractionPhase.Verifying => $"Verifying {p.FilesProcessed:N0} / {p.TotalFiles:N0}",
+                ExtractionPhase.Removing  => $"Removing {p.FilesProcessed:N0} / {p.TotalFiles:N0}",
+                _                         => $"{p.FilesProcessed:N0} / {p.TotalFiles:N0}",
+            };
+
+            if (p.Phase == ExtractionPhase.Writing && p.FilesProcessed > 0 && p.FilesProcessed % 1000 == 0)
+                Log($"[{install.Name}] {p.FilesProcessed:N0}/{p.TotalFiles:N0} — {pct:F1}%");
+        });
+
+    /// <summary>
+    /// Brings an existing extraction in line with the archives.
+    ///
+    /// <para>
+    /// Kept separate from <see cref="RunExtractAsync"/> rather than sharing a parameterised path,
+    /// because that method deletes an incomplete extraction before starting over. Routing an
+    /// update through it would silently destroy tens of gigabytes of perfectly good files — the
+    /// exact opposite of what this operation is for.
+    /// </para>
+    /// </summary>
+    private async Task RunUpdateAsync(D2RInstallation install)
+    {
+        if (!CascLib.IsDllPresent())
+        {
+            MessageBox.Show("CascLib.dll is not found next to the executable.",
+                "Missing CascLib.dll", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        var manifest = ManifestService.LoadManifest(install);
+        if (manifest == null)
+        {
+            Log($"[{install.Name}] No manifest found — nothing to update. Run an extraction first.");
+            RefreshInstallState(install);
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _activeCts[install] = cts;
+        install.IsExtracting = true;
+        install.Progress = 0;
+        install.StatusText = "Starting…";
+        Log($"[{install.Name}] {(install.IsInterrupted ? "Resume" : "Update")} started.");
+
+        try
+        {
+            var progress = CreateProgressReporter(install);
+
+            UpdateSummary summary = await Task.Run(() => _extractor.UpdateExtraction(
+                install, manifest,
+                _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage,
+                _preferences.VerifyFileContents, progress,
+                msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+
+            RefreshInstallState(install);
+            install.Progress = 100;
+            install.StatusText = summary.FilesWritten == 0 && summary.FilesRemoved == 0
+                ? "Up to date"
+                : "Updated";
+
+            Log(summary.FilesWritten == 0 && summary.FilesRemoved == 0
+                ? $"[{install.Name}] Already up to date — nothing written."
+                : $"[{install.Name}] Update complete: {summary.FilesWritten:N0} written, " +
+                  $"{summary.FilesRemoved:N0} removed, {summary.FilesUnchanged:N0} unchanged.");
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            Log($"[{install.Name}] Update cancelled.");
+            install.StatusText = "Cancelled";
+            RefreshInstallState(install);
+        }
+        catch (Exception ex)
+        {
+            Log($"[{install.Name}] ERROR: {ex.Message}");
+            install.StatusText = "Error";
+            RefreshInstallState(install);
+        }
+        finally
+        {
+            install.IsExtracting = false;
+            install.IsEnumerating = false;
+            install.EnumeratingFile = string.Empty;
+            install.Progress = 0;
+            _activeCts.Remove(install);
+            cts.Dispose();
+        }
+    }
 
     private async Task RunExtractAsync(D2RInstallation install)
     {
@@ -488,66 +687,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         try
         {
-            var progress = new Progress<ExtractionProgress>(p =>
-            {
-                install.IsEnumerating = p.IsEnumerating;
-                if (p.IsEnumerating)
-                {
-                    install.StatusText = p.FilesProcessed > 0
-                        ? $"Enumerating… ({p.FilesProcessed:N0} found)"
-                        : "Enumerating files…";
-                    install.EnumeratingFile = p.CurrentFile;
-                }
-                else
-                {
-                    install.EnumeratingFile = string.Empty;
-                    double pct = p.TotalFiles > 0 ? (p.FilesProcessed * 100.0 / p.TotalFiles) : 0;
-                    install.Progress = pct;
-                    install.FilesExtracted = p.FilesProcessed;
-                    install.TotalFiles = p.TotalFiles;
-                    install.StatusText = $"{p.FilesProcessed:N0} / {p.TotalFiles:N0}";
-                    if (p.FilesProcessed > 0 && p.FilesProcessed % 1000 == 0)
-                        Log($"[{install.Name}] {p.FilesProcessed:N0}/{p.TotalFiles:N0} — {pct:F1}%");
-                }
-            });
+            var progress = CreateProgressReporter(install);
 
-            // Detect whether this is an international-only pass (base already extracted, int'l missing or wrong language).
-            var currentManifest = ManifestService.LoadManifest(install);
-            bool wantsInternational = _preferences.ExtractInternationalFiles
-                                      && !string.IsNullOrEmpty(_preferences.InternationalLanguage);
-            bool intlSatisfied = currentManifest?.InternationalExtracted == true
-                                 && string.Equals(currentManifest.InternationalLanguage,
-                                     _preferences.InternationalLanguage, StringComparison.OrdinalIgnoreCase);
-            bool isInternationalOnly =
-                currentManifest?.IsComplete == true
-                && wantsInternational
-                && !intlSatisfied;
-
-            if (isInternationalOnly)
-            {
-                Log($"[{install.Name}] Base already extracted — running international-only pass for '{_preferences.InternationalLanguage}'…");
-                install.StatusText = "Int'l extraction…";
-                await Task.Run(() => _extractor.ExtractInternationalOnly(install, currentManifest!,
-                    _preferences.InternationalLanguage!, progress,
-                    msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
-            }
-            else
-            {
-                // If a partial extraction exists, clean it up before starting fresh.
-                if (install.IsPartiallyExtracted)
-                {
-                    Log($"[{install.Name}] Partial extraction found — cleaning up before fresh extraction…");
-                    install.StatusText = "Cleaning up…";
-                    await Task.Run(() => _extractor.UndoExtraction(install, null,
-                        msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
-                    RefreshInstallState(install);
-                    install.StatusText = "Starting…";
-                }
-
-                await Task.Run(() => _extractor.Extract(install, _preferences.ExtractInternationalFiles,
-                    _preferences.InternationalLanguage, progress,
-                    msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
-            }
+            await Task.Run(() => _extractor.Extract(install, _preferences.ExtractInternationalFiles,
+                _preferences.InternationalLanguage, progress,
+                msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
 
             RefreshInstallState(install);
             install.Progress = 100;

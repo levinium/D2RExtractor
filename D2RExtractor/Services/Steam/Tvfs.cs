@@ -48,6 +48,13 @@ internal sealed class Tvfs
         public required string VirtualPath { get; init; } // CASC-style, e.g. "data:data\global\allcofs.bin"
         public required long Size { get; init; }
         public required List<Span> Spans { get; init; }
+
+        /// <summary>
+        /// Lower-case hex content key, joined on from the text ROOT (see
+        /// <c>SteamStaticStorage.ApplyTextRootPaths</c>). Null when the ROOT did not supply one —
+        /// the TVFS itself carries only encoding keys, not a content hash.
+        /// </summary>
+        public string? ContentKey { get; init; }
     }
 
     private sealed class Header

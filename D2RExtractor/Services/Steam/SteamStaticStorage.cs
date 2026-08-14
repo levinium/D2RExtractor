@@ -31,11 +31,18 @@ internal sealed class SteamStaticStorage : IDisposable
     private readonly Dictionary<string, Tvfs.FileEntry> _selected =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private SteamStaticStorage(StaticContainer container, List<Tvfs.FileEntry> allFiles)
+    private SteamStaticStorage(StaticContainer container, List<Tvfs.FileEntry> allFiles, string keySource)
     {
         _container = container;
         _allFiles = allFiles;
+        KeySource = keySource;
     }
+
+    /// <summary>
+    /// Which <see cref="Models.KeySource"/> the entries' content keys come from — the text ROOT's
+    /// content MD5 when it verifies, otherwise the TVFS encoding keys.
+    /// </summary>
+    public string KeySource { get; }
 
     /// <summary>
     /// Returns the path to the <c>.build.config</c> for a Steam static-container
@@ -89,7 +96,9 @@ internal sealed class SteamStaticStorage : IDisposable
         // TVFS encoding keys to recover the real paths.
         files = ApplyTextRootPaths(container, config, files, log);
 
-        return new SteamStaticStorage(container, files);
+        string keySource = DetermineKeySource(container, files, log);
+
+        return new SteamStaticStorage(container, files, keySource);
     }
 
     /// <summary>
@@ -155,6 +164,7 @@ internal sealed class SteamStaticStorage : IDisposable
                     VirtualPath = path.Replace('/', '\\').ToLowerInvariant(),
                     Size = entry.Size,
                     Spans = entry.Spans,
+                    ContentKey = ParseRootMd5(rawLine, bar, len),
                 });
             }
             else missed++;
@@ -172,6 +182,93 @@ internal sealed class SteamStaticStorage : IDisposable
         return corrected;
     }
 
+    /// <summary>
+    /// Extracts the second <c>|</c>-delimited field of a text-ROOT record — a 32-char hex digest —
+    /// as a lower-case hex string, or null if the record does not have one in that shape.
+    /// Records look like <c>fullpath|md5|plugin|</c>.
+    /// </summary>
+    private static string? ParseRootMd5(string rawLine, int firstBar, int len)
+    {
+        if (firstBar < 0 || firstBar + 1 >= len) return null;
+
+        int start = firstBar + 1;
+        int end = rawLine.IndexOf('|', start);
+        if (end < 0 || end > len) end = len;
+        if (end - start != 32) return null;
+
+        for (int i = start; i < end; i++)
+        {
+            char c = rawLine[i];
+            bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!hex) return null;
+        }
+        return rawLine[start..end].ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Decides whether the text-ROOT digests really are content MD5s before they are trusted as
+    /// content keys, by decoding the smallest entry that has one and hashing it.
+    ///
+    /// This costs one small file read and removes the need to assume anything about the ROOT's
+    /// second column: if the check fails the storage falls back to encoding keys, which still
+    /// detect change but cannot be compared against a hash of the file on disk.
+    /// </summary>
+    private static string DetermineKeySource(
+        StaticContainer container, List<Tvfs.FileEntry> files, Action<string>? log)
+    {
+        Tvfs.FileEntry? probe = files
+            .Where(f => f.ContentKey != null && f.Size > 0 && f.Size < 4 * 1024 * 1024 && f.Spans.Count == 1)
+            .OrderBy(f => f.Size)
+            .FirstOrDefault();
+
+        if (probe == null)
+        {
+            log?.Invoke("Text ROOT supplied no usable content digests — using encoding keys for change detection.");
+            return Models.KeySource.SteamEKey;
+        }
+
+        try
+        {
+            byte[] data = container.OpenByEKey(probe.Spans[0].EKey);
+            string actual = Convert.ToHexString(MD5.HashData(data)).ToLowerInvariant();
+            if (actual == probe.ContentKey)
+            {
+                log?.Invoke("Text ROOT digests verified as content MD5s — updates can verify extracted files directly.");
+                return Models.KeySource.SteamRootMd5;
+            }
+
+            log?.Invoke($"Text ROOT digest for '{probe.VirtualPath}' is not the content MD5 " +
+                        "— using encoding keys for change detection instead.");
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Could not verify text ROOT digests ({ex.Message}) — using encoding keys for change detection.");
+        }
+        return Models.KeySource.SteamEKey;
+    }
+
+    /// <summary>
+    /// Content key for an entry under the active <see cref="KeySource"/>. For the encoding-key
+    /// fallback the spans are folded into a single digest so multi-span files still get one stable
+    /// identity, and no archive data has to be decoded to compute it.
+    /// </summary>
+    private string? ContentKeyFor(Tvfs.FileEntry entry)
+    {
+        if (KeySource == Models.KeySource.SteamRootMd5)
+            return entry.ContentKey;
+
+        if (entry.Spans.Count == 0)
+            return null;
+
+        if (entry.Spans.Count == 1)
+            return Convert.ToHexString(entry.Spans[0].EKey).ToLowerInvariant();
+
+        var joined = new byte[entry.Spans.Count * 16];
+        for (int i = 0; i < entry.Spans.Count; i++)
+            entry.Spans[i].EKey.CopyTo(joined, i * 16);
+        return Convert.ToHexString(MD5.HashData(joined)).ToLowerInvariant();
+    }
+
     /// <summary>Lowercases a path and removes all path separators, for ROOT↔TVFS joining.</summary>
     private static string SeparatorlessLower(string s)
     {
@@ -183,10 +280,10 @@ internal sealed class SteamStaticStorage : IDisposable
     }
 
     /// <summary>
-    /// Enumerates files whose virtual path begins with one of <paramref name="prefixes"/>,
-    /// yielding <c>(virtualPath, fileSize)</c>. Matching entries are cached for extraction.
+    /// Enumerates files whose virtual path begins with one of <paramref name="prefixes"/>.
+    /// Matching entries are cached for extraction.
     /// </summary>
-    public IEnumerable<(string VirtualPath, ulong FileSize)> EnumerateFiles(
+    public IEnumerable<Models.StorageEntry> EnumerateFiles(
         string[] prefixes,
         CancellationToken ct,
         Action<string>? onScanProgress = null,
@@ -215,7 +312,8 @@ internal sealed class SteamStaticStorage : IDisposable
                 if (entry.VirtualPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
                     _selected[entry.VirtualPath] = entry;
-                    yield return (entry.VirtualPath, (ulong)entry.Size);
+                    yield return new Models.StorageEntry(
+                        entry.VirtualPath, (ulong)entry.Size, ContentKeyFor(entry));
                     break;
                 }
             }

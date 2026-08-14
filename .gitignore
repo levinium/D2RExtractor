@@ -1,0 +1,27 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio / Rider / VS Code workspace state
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Publish artifacts
+publish/
+*.zip
+
+# Logs and crash dumps
+*.log
+*.dmp
+
+# NuGet
+*.nupkg
+packages/
+
+# The native CascLib.dll is intentionally tracked (see D2RExtractor/Tools/) —
+# the build copies it next to the executable and it is required to build.
+!D2RExtractor/Tools/CascLib.dll

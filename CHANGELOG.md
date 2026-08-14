@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.7
+
+- **Added incremental updates.** After a D2R patch you no longer need to undo and re-extract 45 GB. The **Extract** button becomes **Update** once an installation is extracted: it compares the game archives against the extracted files and writes only the ones that are new, changed, missing or damaged. Files the patch removed are deleted, so the extracted tree keeps matching the archives. A typical patch now writes a few hundred MB instead of tens of gigabytes.
+- Change detection uses each file's content key, read straight from the storage during the scan it already performs, so it costs nothing extra. On Battle.net that key is the MD5 of the file's decoded contents; on Steam it comes from the storage's file index when that verifies, and falls back to encoding keys otherwise.
+- **Interrupted extractions now resume instead of restarting.** The button reads **Resume** and writes only the files that are missing, rather than deleting everything already written and starting over.
+- Enabling, disabling or switching the international language is now an ordinary update — only the affected files are rewritten. Turning international files back off correctly restores the base English files, which it previously did not.
+- Added **Update All** next to Extract All, and a **"Verify extracted file contents during Update"** setting. Verification checksums every extracted file rather than comparing sizes, catching files corrupted or edited outside the app. It reads the whole extraction and takes several extra minutes, and still writes only the files that differ.
+- **The manifest no longer writes gigabytes of its own.** It was rewritten in full every 500 files, so its cost grew with the square of the file count — about 1.5 GB of writes over a typical 150,000-file extraction, on top of the extraction itself. The file list now lives in an append-only sidecar (`data\.extraction_files.txt`) next to a small (~300 byte) JSON header, which brings that down to a single ~11 MB write even with the new per-file content keys: a 134× reduction.
+- **Fixed: a manifest damaged by a crash or power loss could strand an entire extraction.** The manifest was truncated and rewritten in place, so an interrupted write left invalid JSON. The app then read the installation as never extracted, which disabled Undo and left ~45 GB of files with nothing referencing them. Manifest writes are now atomic, and the incomplete-extraction marker is written before the first file instead of after the first 500.
+- Faster archive scanning on Battle.net: the enumeration no longer allocates a string for every one of the millions of entries it walks past, only for the ones that match.
+- Corrected a stale note claiming Steam extraction needs an internet connection. It has not since 1.1.5.
+
+> Note: manifests written by 1.1.7 are not readable by 1.1.6 and earlier — those versions would see an empty file list and their Undo would remove nothing. Existing 1.1.6 manifests are upgraded automatically on the first Update.
+
 ## 1.1.6
 
 - **Fixed a Steam extraction bug that caused a game-launch error.** The Steam TVFS omits path separators for some entries, so ~3,481 files (e.g. `data\global\sfx\monster\baal\coldtrail.flac`) were written with a merged folder/file name (`…\monster\baalcoldtrail.flac`) — landing at the wrong path. The file contents were correct, but the game couldn't find them and errored on launch.
