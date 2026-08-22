@@ -368,11 +368,14 @@ internal static class CascLib
         return args;
     }
 
-    /// <summary>Returns true if CascLib.dll exists next to the executable.</summary>
+    /// <summary>Returns true if CascLib.dll is available (next to exe or via single-file bundle extraction).</summary>
     internal static bool IsDllPresent()
     {
-        string dllPath = Path.Combine(AppContext.BaseDirectory, DllName);
-        return File.Exists(dllPath);
+        if (File.Exists(Path.Combine(AppContext.BaseDirectory, DllName)))
+            return true;
+        // In single-file builds, native DLLs are extracted to a temp dir that's added to
+        // the native search path — TryLoad confirms they're accessible for P/Invoke.
+        return NativeLibrary.TryLoad(DllName, out _);
     }
 
     /// <summary>

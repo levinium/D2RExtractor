@@ -37,11 +37,19 @@ The bundled CascLib.dll is still used for Battle.net installs.
 
 ## Build
 
+To build a standalone single-file executable (bundles all dependencies including CascLib.dll):
+
+```
+dotnet publish D2RExtractor/D2RExtractor.csproj /p:PublishProfile=FolderProfile
+```
+
+Output: `D2RExtractor\bin\x64\Release\net8.0-windows\publish\win-x64\D2RExtractor.exe`
+
+For development builds (multi-file, faster):
+
 ```
 dotnet build D2RExtractor.sln -c Release -p:Platform=x64
 ```
-
-Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
 
 ---
 
