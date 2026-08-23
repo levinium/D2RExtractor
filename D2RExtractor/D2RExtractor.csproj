@@ -32,4 +32,17 @@
     </Content>
   </ItemGroup>
 
+  <PropertyGroup>
+    <CascLibProjectPath>$(MSBuildProjectDirectory)\..\external\CascLib\CascLib_dll.vcxproj</CascLibProjectPath>
+    <CascLibOutputPath>$(MSBuildProjectDirectory)\..\external\CascLib\bin\CascLib_dll\x64\$(Configuration)\CascLib.dll</CascLibOutputPath>
+    <CascLibToolsPath>$(MSBuildProjectDirectory)\Tools\CascLib.dll</CascLibToolsPath>
+    <CascLibBuildScript>$(MSBuildProjectDirectory)\..\scripts\Build-CascLib.ps1</CascLibBuildScript>
+    <CascLib Condition="'$(CascLib)' == ''">false</CascLib>
+  </PropertyGroup>
+
+  <Target Name="BuildNativeCascLib" BeforeTargets="BeforeBuild" Condition="'$(CascLib)' == 'true' and '$(OS)' == 'Windows_NT' and Exists('$(CascLibBuildScript)')">
+    <Exec
+      Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(CascLibBuildScript)&quot; -RepoRoot &quot;$(MSBuildProjectDirectory)\..&quot; -Configuration &quot;$(Configuration)&quot; -CascLibProjectPath &quot;$(CascLibProjectPath)&quot; -CascLibOutputPath &quot;$(CascLibOutputPath)&quot; -CascLibToolsPath &quot;$(CascLibToolsPath)&quot;" />
+  </Target>
+
 </Project>

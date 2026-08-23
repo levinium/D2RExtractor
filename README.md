@@ -38,10 +38,18 @@ The bundled CascLib.dll is still used for Battle.net installs.
 ## Build
 
 ```
-dotnet build D2RExtractor.sln -c Release -p:Platform=x64
+dotnet build D2RExtractor\D2RExtractor.csproj -c Release
 ```
 
-Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
+Build with CascLib:
+
+```
+dotnet build D2RExtractor\D2RExtractor.csproj -c Release -p:CascLib=true
+```
+
+`CascLib=true` initializes the `external\CascLib` submodule if needed, then builds and copies `CascLib.dll`. It still requires the upstream native CascLib toolchain/dependencies. See the official repo: https://github.com/ladislav-zezula/CascLib
+
+Output: `D2RExtractor\bin\Release\net8.0-windows\D2RExtractor.exe`
 
 ---
 
@@ -97,8 +105,10 @@ D2RExtractor\
     ├── Native\
     │   └── CascLib.cs               P/Invoke declarations for CascLib.dll (Battle.net)
     └── Tools\
-        └── CascLib.dll              (place your copy here before building)
+        └── CascLib.dll              (runtime DLL; may be supplied manually or built via `-p:CascLib=true`)
 ```
+
+The `Tools\CascLib.dll` runtime dependency can still be supplied manually. When building with `-p:CascLib=true`, it is built from the `external\CascLib` submodule and copied automatically.
 
 **Settings** are stored in: `%AppData%\D2RExtractor\settings.json`
 **Manifests** are stored in: `<D2RPath>\data\.extraction_manifest.json` (header) and `<D2RPath>\data\.extraction_files.txt` (one record per extracted file: path, content key, size)
