@@ -5,7 +5,7 @@
         Title="D2R File Extractor"
         Icon="Resources/app.ico"
         Width="950" Height="680"
-        MinWidth="800" MinHeight="500"
+        MinWidth="900" MinHeight="500"
         WindowStartupLocation="CenterScreen"
         Background="#1A1A1A">
 
@@ -13,6 +13,11 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <conv:BoolToVisibilityConverter x:Key="InvBoolToVis" Invert="True"/>
         <conv:ProgressToStringConverter x:Key="ProgressToStr"/>
+
+        <!-- 160 (name) + 130 (status) + 350 (actions) + 24 border/scrollbar allowance.
+             Fixed-width columns do not shrink with the window, they get clipped, so the path
+             column is the one that gives. -->
+        <conv:RemainingWidthConverter x:Key="PathWidth" Reserved="664" Minimum="140"/>
 
         <!-- ── Colour palette ── -->
         <SolidColorBrush x:Key="AccentBrush"   Color="#C8A951"/>  <!-- D2 gold -->
@@ -190,11 +195,16 @@
                 </Button.Style>
             </Button>
 
+            <TextBlock x:Name="VersionLabel"
+                       Foreground="{StaticResource MutedBrush}" FontSize="11"
+                       VerticalAlignment="Center" Margin="6,0,4,0"/>
+
             <!-- Only where the build was published with somewhere to send anyone.
                  A clean checkout has no destination, so there is no button and
-                 nothing for a fork to have to remember to remove. Furthest from
-                 the controls people actually came for, because an ask that sits
-                 in the way is an ask that gets resented. -->
+                 nothing for a fork to have to remember to remove. Sits between the
+                 version and the gear: out of the way of the controls people came
+                 for, because an ask that sits in the way is an ask that gets
+                 resented. -->
             <Button x:Name="SponsorButton"
                     Padding="4,1" Cursor="Hand"
                     Visibility="Collapsed"
@@ -217,9 +227,6 @@
                     </Style>
                 </Button.Style>
             </Button>
-            <TextBlock x:Name="VersionLabel"
-                       Foreground="{StaticResource MutedBrush}" FontSize="11"
-                       VerticalAlignment="Center" Margin="6,0,6,0"/>
             <!-- Gear button is intentionally NOT bound to IsGearEnabled so the Change Log
                  item remains accessible during extraction. Only the Settings MenuItem is
                  conditionally disabled (via PlacementTarget binding below). -->
@@ -341,7 +348,10 @@
                         </GridViewColumn>
 
                         <!-- Path column -->
-                        <GridViewColumn Header="Folder Path" Width="250">
+                        <GridViewColumn Header="Folder Path"
+                                        Width="{Binding ActualWidth,
+                                                RelativeSource={RelativeSource AncestorType=ListView},
+                                                Converter={StaticResource PathWidth}}">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding FolderPath}"

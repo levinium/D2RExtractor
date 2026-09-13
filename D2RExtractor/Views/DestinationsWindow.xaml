@@ -1,14 +1,23 @@
 <Window x:Class="D2RExtractor.Views.DestinationsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:D2RExtractor.Converters"
         Title="Destinations"
         Icon="/Resources/app.ico"
-        Width="880" Height="560"
-        MinWidth="720" MinHeight="440"
+        Width="900" Height="560"
+        MinWidth="880" MinHeight="440"
         WindowStartupLocation="CenterOwner"
         Background="#1A1A1A">
 
+    <!-- MinWidth is set so the fixed columns (On 40 + Status 110 + Actions 320) and the buttons
+         inside Actions always fit. The Destination column takes up the slack via
+         RemainingWidthConverter, so widening the window widens the paths rather than leaving a
+         gap, and narrowing it can never clip the buttons on the right. -->
+
     <Window.Resources>
+        <!-- 40 (On) + 110 (Status) + 320 (Actions) + 24 border/scrollbar allowance -->
+        <conv:RemainingWidthConverter x:Key="PathWidth" Reserved="494" Minimum="160"/>
+
         <SolidColorBrush x:Key="AccentBrush"   Color="#C8A951"/>  <!-- D2 gold -->
         <SolidColorBrush x:Key="DangerBrush"   Color="#C0392B"/>
         <SolidColorBrush x:Key="SuccessBrush"  Color="#27AE60"/>
@@ -151,7 +160,10 @@
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
 
-                        <GridViewColumn Header="Destination" Width="380">
+                        <GridViewColumn Header="Destination"
+                                        Width="{Binding ActualWidth,
+                                                RelativeSource={RelativeSource AncestorType=ListView},
+                                                Converter={StaticResource PathWidth}}">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Margin="4,6" VerticalAlignment="Center">
@@ -189,24 +201,29 @@
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
 
-                        <GridViewColumn Header="Actions" Width="290">
+                        <!-- The buttons size to their own text rather than to fixed widths. A fixed
+                             width clips its label the moment the text is wider than the number
+                             guessed for it, which is what Windows' "make text bigger" setting and a
+                             longer word both do. MinWidth keeps the row tidy when the text is
+                             short. -->
+                        <GridViewColumn Header="Actions" Width="320">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="4,4" VerticalAlignment="Center">
-                                        <Button Content="Extract" Width="66" Margin="0,0,5,0"
+                                        <Button Content="Extract" MinWidth="66" Margin="0,0,5,0"
                                                 Style="{StaticResource AccentButtonStyle}"
                                                 ToolTip="Extract or update this destination on its own"
                                                 Tag="{Binding}" Click="ExtractOne_Click"/>
-                                        <Button Content="Changes" Width="70" Margin="0,0,5,0"
+                                        <Button Content="Changes" MinWidth="70" Margin="0,0,5,0"
                                                 Style="{StaticResource BaseButtonStyle}"
                                                 ToolTip="What the last run added, replaced and removed here"
                                                 Tag="{Binding}" Click="Changes_Click"/>
-                                        <Button Content="Undo" Width="56" Margin="0,0,5,0"
+                                        <Button Content="Undo" MinWidth="56" Margin="0,0,5,0"
                                                 Style="{StaticResource DangerButtonStyle}"
                                                 IsEnabled="{Binding HasManifest}"
                                                 ToolTip="Remove the files extracted to this destination"
                                                 Tag="{Binding}" Click="UndoOne_Click"/>
-                                        <Button Content="Remove" Width="66"
+                                        <Button Content="Remove" MinWidth="66"
                                                 Style="{StaticResource BaseButtonStyle}"
                                                 ToolTip="Stop managing this destination (does not delete files)"
                                                 Tag="{Binding}" Click="RemoveTarget_Click"/>
