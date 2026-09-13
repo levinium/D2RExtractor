@@ -1,9 +1,14 @@
 # Build every push and pull request.
 #
 # Windows only, because the app targets net8.0-windows: it uses WPF, which does
-# not build anywhere else. There is no test project yet, so this proves the tree
-# compiles and nothing more - which is still the difference between a broken
-# main branch that is noticed now and one that is noticed at release time.
+# not build anywhere else.
+#
+# The tests cover the parts that fail quietly: which files a destination owns and
+# will therefore delete, whether two destinations overlap, and whether a
+# published version is newer than the one running. None of those announce
+# themselves when they go wrong - a version comparison that is too shy simply
+# never mentions a release again - which is why they are checked here rather
+# than noticed later.
 name: CI
 
 on:
@@ -28,3 +33,6 @@ jobs:
 
       - name: Build
         run: dotnet build D2RExtractor.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test D2RExtractor.sln --no-build -c Release --verbosity normal

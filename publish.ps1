@@ -13,11 +13,16 @@
 .EXAMPLE
     .\publish.ps1
     .\publish.ps1 -SponsorUrl "https://github.com/sponsors/levinium?frequency=one-time&amount={amount}"
+    .\publish.ps1 -SkipTests
 #>
 [CmdletBinding()]
 param(
     # Where the zip lands. Defaults to dist/ off the repo root.
     [string] $OutputDirectory,
+
+    # Publish without running the tests first. For a local trial build only - the
+    # release workflow never passes this.
+    [switch] $SkipTests,
 
     # Where "Support D2R File Extractor" sends people. Left unset - as it is for
     # every build from a clean checkout - the app has no donate button at all,
@@ -48,6 +53,16 @@ if (-not $version) { throw "No <Version> found in $csproj." }
 $casclib = Join-Path $root 'D2RExtractor\Tools\CascLib.dll'
 if (-not (Test-Path $casclib)) {
     throw "CascLib.dll is missing from D2RExtractor\Tools\. Battle.net installs would not open."
+}
+
+# Tests before anything is built for release. The things they cover - which files
+# a destination owns and will delete, whether two destinations overlap, whether a
+# published version is newer than the running one - all fail silently in the app,
+# so shipping past a red suite means shipping a fault nobody will report.
+if (-not $SkipTests) {
+    Write-Host 'Running tests...'
+    dotnet test (Join-Path $root 'D2RExtractor.sln') -c Release -p:Platform=x64 --nologo -v q
+    if ($LASTEXITCODE -ne 0) { throw 'Tests failed; not publishing.' }
 }
 
 Write-Host "Publishing D2RExtractor v$version..."

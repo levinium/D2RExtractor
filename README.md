@@ -18,7 +18,7 @@ track of every file it wrote, and can undo the whole thing.
 
 ## Download
 
-**[Download D2RExtractor-Compiled-Standalone_v1.1.7.zip](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_v1.1.7/D2RExtractor-Compiled-Standalone_v1.1.7.zip)** (63 MB)
+**[Download D2RExtractor-Compiled-Standalone_v1.1.8.zip](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_v1.1.8/D2RExtractor-Compiled-Standalone_v1.1.8.zip)** (63 MB)
 
 Unzip it anywhere and run `D2RExtractor.exe`. That is the whole installation.
 There is no setup step, no admin prompt and no registry entry, because the .NET
@@ -204,9 +204,17 @@ Needs the .NET 8 SDK, and a copy of `CascLib.dll` placed in
 
 ```powershell
 dotnet build D2RExtractor.sln -c Release -p:Platform=x64
+dotnet test  D2RExtractor.sln -c Release -p:Platform=x64   # 122 tests
 ```
 
 Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
+
+The tests cover the parts that fail quietly rather than loudly: which files a
+destination considers its own and will therefore delete, whether two
+destinations overlap, how the manifest sidecars survive a crash mid-write, and
+whether a published version is newer than the one running. A version comparison
+that is too shy simply never mentions a release again, which nobody reports
+because there is nothing to see.
 
 To build the release zip — self-contained, single file, no .NET runtime needed
 on the target machine:
@@ -215,6 +223,13 @@ on the target machine:
 .\publish.ps1
 .\publish.ps1 -SponsorUrl "https://github.com/sponsors/<user>?frequency=one-time&amount={amount}"
 ```
+
+`publish.ps1` runs the tests first and refuses to publish if any fail.
+
+Releases themselves are built by GitHub Actions, not on a developer's machine:
+pushing a `D2RExtractor_v*` tag checks that the tag matches `<Version>`, runs the
+tests, publishes the zip with a SHA-256 beside it, and opens a draft release to
+look over before anyone can download it.
 
 An `{amount}` placeholder turns the ask into a picker — $3 / $5 / $10 / $25 and
 Other, defaulting to $5 — with the chosen sum substituted into the link. Only
