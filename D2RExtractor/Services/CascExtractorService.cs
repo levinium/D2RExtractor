@@ -110,8 +110,14 @@ public class CascExtractorService
     /// On success the manifest is saved; on failure any partially-written files are left in place
     /// so the user can retry without restarting from scratch.
     /// </summary>
+    /// <param name="installation">
+    /// Where the archives are READ from. Since 1.1.8 this is no longer necessarily where they are
+    /// written; the two were the same folder until destinations became configurable.
+    /// </param>
+    /// <param name="target">Where the files are WRITTEN, and where this run's manifest lives.</param>
     public ExtractionManifest Extract(
         D2RInstallation installation,
+        ExtractionTarget target,
         bool extractInternational,
         string? internationalLanguage,
         IProgress<ExtractionProgress>? progress,
@@ -120,11 +126,14 @@ public class CascExtractorService
     {
         ct.ThrowIfCancellationRequested();
 
-        string installPath = installation.FolderPath;
+        string sourcePath = installation.FolderPath;
+        string outputPath = target.FolderPath;
 
-        log?.Invoke($"Opening storage at: {installPath}");
+        log?.Invoke($"Opening storage at: {sourcePath}");
+        if (!string.Equals(sourcePath, outputPath, StringComparison.OrdinalIgnoreCase))
+            log?.Invoke($"Extracting to: {outputPath}");
 
-        using IExtractionBackend backend = CreateBackend(installPath, log);
+        using IExtractionBackend backend = CreateBackend(sourcePath, log);
 
         string[] prefixes = BuildPrefixes(extractInternational, internationalLanguage);
         var files = DeduplicateByOutputPath(
@@ -142,18 +151,31 @@ public class CascExtractorService
         // Persist the incomplete-extraction marker before writing a single file. Without it, a
         // crash early in the run would leave extracted files on disk with no manifest naming them,
         // and Undo would have nothing to work from.
-        ManifestService.ResetEntries(installation, manifest);
-        ManifestService.SaveManifest(installation, manifest);
+        ManifestService.ResetEntries(target, manifest);
+        ManifestService.SaveManifest(target, manifest);
 
-        using (var entries = ManifestService.OpenEntryWriter(installation, manifest))
+        using (var entries = ManifestService.OpenEntryWriter(target, manifest))
         {
-            ExtractFiles(backend, files, installPath, installation, manifest, entries, progress, log, ct);
+            ExtractFiles(backend, files, outputPath, target, manifest, entries, progress, log, ct);
         }
 
         manifest.IsComplete = true;
         manifest.InternationalExtracted = extractInternational && !string.IsNullOrEmpty(internationalLanguage);
         manifest.InternationalLanguage = extractInternational ? internationalLanguage : null;
-        ManifestService.SaveManifest(installation, manifest);
+        ManifestService.SaveManifest(target, manifest);
+
+        // No per-file list for a fresh extraction: every file is an addition, so the list would be
+        // a second copy of the manifest's own sidecar and another ~11 MB of writes to say what the
+        // summary already says. The viewer reads the manifest for this case.
+        ManifestService.WriteChanges(target, []);
+        ManifestService.SaveRunRecord(target, new ExtractionRunRecord
+        {
+            Kind = RunKind.Extract,
+            FilesAdded = manifest.EntryCount,
+            BytesWritten = manifest.TotalBytesExtracted,
+            HasChangeList = false,
+        });
+
         log?.Invoke($"Extraction complete. {manifest.EntryCount:N0} files, {FormatBytes(manifest.TotalBytesExtracted)} written.");
         return manifest;
     }
@@ -297,8 +319,8 @@ public class CascExtractorService
     private static void ExtractFiles(
         IExtractionBackend backend,
         IReadOnlyList<StorageEntry> files,
-        string installPath,
-        D2RInstallation installation,
+        string outputPath,
+        ExtractionTarget target,
         ExtractionManifest manifest,
         ManifestService.EntryWriter entries,
         IProgress<ExtractionProgress>? progress,
@@ -327,7 +349,7 @@ public class CascExtractorService
                 ct.ThrowIfCancellationRequested();
 
                 string fsRelPath = StripCascNamespace(file.VirtualPath);
-                string destPath = Path.Combine(installPath, fsRelPath);
+                string destPath = Path.Combine(outputPath, fsRelPath);
                 string? destDir = Path.GetDirectoryName(destPath);
                 if (destDir != null)
                     Directory.CreateDirectory(destDir);
@@ -398,6 +420,7 @@ public class CascExtractorService
     /// </param>
     public UpdateSummary UpdateExtraction(
         D2RInstallation installation,
+        ExtractionTarget target,
         ExtractionManifest manifest,
         bool extractInternational,
         string? internationalLanguage,
@@ -407,10 +430,14 @@ public class CascExtractorService
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        string installPath = installation.FolderPath;
+        string sourcePath = installation.FolderPath;
+        string outputPath = target.FolderPath;
 
-        log?.Invoke($"Opening storage at: {installPath}");
-        using IExtractionBackend backend = CreateBackend(installPath, log);
+        log?.Invoke($"Opening storage at: {sourcePath}");
+        if (!string.Equals(sourcePath, outputPath, StringComparison.OrdinalIgnoreCase))
+            log?.Invoke($"Updating: {outputPath}");
+
+        using IExtractionBackend backend = CreateBackend(sourcePath, log);
 
         string[] prefixes = BuildPrefixes(extractInternational, internationalLanguage);
         var files = DeduplicateByOutputPath(
@@ -419,10 +446,10 @@ public class CascExtractorService
         // ---- Gather the current state of the extracted tree -----------------
         progress?.Report(new ExtractionProgress(0, files.Count, "[comparing…]", 0, 0, ExtractionPhase.Comparing));
 
-        var onDisk = ScanExtractedFiles(installPath, installation, manifest, log, ct);
+        var onDisk = ScanExtractedFiles(outputPath, target, manifest, log, ct);
 
         var recorded = new Dictionary<string, ManifestEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (ManifestEntry entry in ManifestService.EnumerateEntries(installation, manifest))
+        foreach (ManifestEntry entry in ManifestService.EnumerateEntries(target, manifest))
             recorded[entry.RelPath] = entry;
 
         log?.Invoke($"Comparing {files.Count:N0} archive entries against {recorded.Count:N0} recorded " +
@@ -467,6 +494,11 @@ public class CascExtractorService
         var finalEntries = new Dictionary<string, ManifestEntry>(files.Count, StringComparer.OrdinalIgnoreCase);
         var seenInStorage = new HashSet<string>(files.Count, StringComparer.OrdinalIgnoreCase);
 
+        // What this run changed, for "what did the last patch touch?". Recorded as the decision is
+        // made rather than reconstructed afterwards: whether a written file was new or a
+        // replacement is known here and nowhere later.
+        var changes = new List<ExtractionChange>();
+
         int unchanged = 0, verified = 0;
         bool backfilledBySize = false;
         var compareSw = System.Diagnostics.Stopwatch.StartNew();
@@ -502,7 +534,7 @@ public class CascExtractorService
                 // Everything cheap says this file is fine. Verification is what catches the cases
                 // the cheap checks structurally cannot see — a file corrupted or edited outside the
                 // app, whose size never changed — so it runs whether or not a recorded key matched.
-                string? actual = TryHashFile(Path.Combine(installPath, relPath));
+                string? actual = TryHashFile(Path.Combine(outputPath, relPath));
                 verified++;
                 needsWrite = actual == null
                              || !string.Equals(actual, file.ContentKey, StringComparison.Ordinal);
@@ -519,9 +551,21 @@ public class CascExtractorService
             }
 
             if (needsWrite)
+            {
                 toWrite.Add(file);
+
+                // "Recorded but absent from disk" counts as an addition, not a replacement: from
+                // the extracted tree's point of view the file is arriving, whatever the manifest
+                // remembers about it. That is the case a resumed extraction is made of.
+                changes.Add(new ExtractionChange(
+                    recordedHasFile && onDiskHasFile ? ChangeKind.Updated : ChangeKind.Added,
+                    relPath,
+                    (long)file.FileSize));
+            }
             else
+            {
                 unchanged++;
+            }
 
             // Record the archive's key either way, so the next update has a comparable baseline.
             finalEntries[relPath] = new ManifestEntry(relPath, file.ContentKey, (long)file.FileSize);
@@ -546,25 +590,25 @@ public class CascExtractorService
         manifest.ManifestVersion = ExtractionManifest.CurrentVersion;
         manifest.KeySource = backend.KeySource;
         manifest.IsComplete = false;
-        ManifestService.SaveManifest(installation, manifest);
+        ManifestService.SaveManifest(target, manifest);
 
         long bytesWritten = 0;
         if (toWrite.Count > 0)
         {
             // Append as files are written: a cancelled update must still leave every file it
             // created recorded, or Undo would strand them.
-            using var entries = ManifestService.OpenEntryWriter(installation, manifest);
-            ExtractFiles(backend, toWrite, installPath, installation, manifest, entries, progress, log, ct);
+            using var entries = ManifestService.OpenEntryWriter(target, manifest);
+            ExtractFiles(backend, toWrite, outputPath, target, manifest, entries, progress, log, ct);
             bytesWritten = toWrite.Sum(f => (long)f.FileSize);
         }
 
-        int removed = RemoveOrphans(installPath, orphans, progress, log, ct);
+        int removed = RemoveOrphans(outputPath, orphans, recorded, changes, progress, log, ct);
 
         // Now that every write has landed, replace the file list in one atomic pass.
-        ManifestService.WriteAllEntries(installation, manifest, finalEntries.Values);
+        ManifestService.WriteAllEntries(target, manifest, finalEntries.Values);
 
         foreach (string prefix in TargetPrefixes)
-            RemoveEmptyDirectories(Path.Combine(installPath, StripCascNamespace(prefix).TrimEnd('\\')), log);
+            RemoveEmptyDirectories(Path.Combine(outputPath, StripCascNamespace(prefix).TrimEnd('\\')), log);
 
         manifest.TotalBytesExtracted = finalEntries.Values.Sum(e => Math.Max(e.Size, 0));
         manifest.ExtractedAt = DateTime.UtcNow;
@@ -572,7 +616,21 @@ public class CascExtractorService
         manifest.InternationalExtracted = extractInternational && !string.IsNullOrEmpty(internationalLanguage);
         manifest.InternationalLanguage = extractInternational ? internationalLanguage : null;
         manifest.IsComplete = true;
-        ManifestService.SaveManifest(installation, manifest);
+        ManifestService.SaveManifest(target, manifest);
+
+        // Written after the manifest, so a crash between the two leaves a correct extraction with a
+        // stale history note rather than a history note describing an extraction that never landed.
+        ManifestService.WriteChanges(target, changes);
+        ManifestService.SaveRunRecord(target, new ExtractionRunRecord
+        {
+            Kind = RunKind.Update,
+            FilesAdded = changes.Count(c => c.Kind == ChangeKind.Added),
+            FilesUpdated = changes.Count(c => c.Kind == ChangeKind.Updated),
+            FilesRemoved = changes.Count(c => c.Kind == ChangeKind.Removed),
+            FilesUnchanged = unchanged,
+            BytesWritten = bytesWritten,
+            HasChangeList = true,
+        });
 
         var summary = new UpdateSummary(toWrite.Count, bytesWritten, removed, unchanged);
         log?.Invoke($"Update complete — {summary.FilesWritten:N0} written ({FormatBytes(summary.BytesWritten)}), " +
@@ -591,22 +649,23 @@ public class CascExtractorService
     /// </para>
     /// </summary>
     private static Dictionary<string, long> ScanExtractedFiles(
-        string installPath,
-        D2RInstallation installation,
+        string outputPath,
+        ExtractionTarget target,
         ExtractionManifest manifest,
         Action<string>? log,
         CancellationToken ct)
     {
         var result = new Dictionary<string, long>(220_000, StringComparer.OrdinalIgnoreCase);
 
-        string dataDir = Path.Combine(installPath, "data");
+        string dataDir = Path.Combine(outputPath, "data");
         if (!Directory.Exists(dataDir))
             return result;
 
-        // The manifest and its sidecar live inside the folder being scanned; they are bookkeeping,
-        // not extracted content.
-        string manifestPath = installation.ManifestPath;
-        string entryPath = ManifestService.GetEntryFilePath(installation, manifest);
+        // The manifest, its sidecar and the run history live inside the folder being scanned; they
+        // are bookkeeping, not extracted content. Counting them would have the next update try to
+        // remove them as files the archives no longer contain.
+        var bookkeeping = new HashSet<string>(
+            ManifestService.BookkeepingPaths(target, manifest), StringComparer.OrdinalIgnoreCase);
 
         var options = new EnumerationOptions
         {
@@ -620,11 +679,10 @@ public class CascExtractorService
         {
             ct.ThrowIfCancellationRequested();
 
-            if (fi.FullName.Equals(manifestPath, StringComparison.OrdinalIgnoreCase) ||
-                fi.FullName.Equals(entryPath, StringComparison.OrdinalIgnoreCase))
+            if (bookkeeping.Contains(fi.FullName))
                 continue;
 
-            result[Path.GetRelativePath(installPath, fi.FullName)] = fi.Length;
+            result[Path.GetRelativePath(outputPath, fi.FullName)] = fi.Length;
         }
         sw.Stop();
 
@@ -637,8 +695,10 @@ public class CascExtractorService
     /// leave it behind, and the game would keep loading it in <c>-direct</c> mode.
     /// </summary>
     private static int RemoveOrphans(
-        string installPath,
+        string outputPath,
         List<string> orphans,
+        Dictionary<string, ManifestEntry> recorded,
+        List<ExtractionChange> changes,
         IProgress<ExtractionProgress>? progress,
         Action<string>? log,
         CancellationToken ct)
@@ -654,13 +714,20 @@ public class CascExtractorService
             ct.ThrowIfCancellationRequested();
             processed++;
 
-            string fullPath = Path.Combine(installPath, relPath);
+            string fullPath = Path.Combine(outputPath, relPath);
             if (File.Exists(fullPath))
             {
                 try
                 {
                     File.Delete(fullPath);
                     removed++;
+
+                    // The size comes from the manifest, since the file is gone by the time anyone
+                    // reads this and its size is the only record of how much the patch dropped.
+                    changes.Add(new ExtractionChange(
+                        ChangeKind.Removed,
+                        relPath,
+                        recorded.TryGetValue(relPath, out ManifestEntry prior) ? Math.Max(prior.Size, 0) : 0));
                 }
                 catch (Exception ex)
                 {
@@ -703,14 +770,21 @@ public class CascExtractorService
     /// Removes all files listed in the extraction manifest and deletes the manifest itself.
     /// Runs synchronously; call from Task.Run if needed.
     /// </summary>
+    /// <param name="target">
+    /// The destination to empty. Only files this target's own manifest lists are deleted, so a
+    /// destination that shares a folder with anything else — a mods folder someone also keeps their
+    /// own files in — loses exactly what this app put there and nothing more.
+    /// </param>
     public void UndoExtraction(
-        D2RInstallation installation,
+        ExtractionTarget target,
         IProgress<ExtractionProgress>? progress,
         Action<string>? log,
         CancellationToken ct)
     {
-        var manifest = ManifestService.LoadManifest(installation)
+        var manifest = ManifestService.LoadManifest(target)
             ?? throw new InvalidOperationException("No extraction manifest found. Nothing to undo.");
+
+        string outputPath = target.FolderPath;
 
         // Stream the list rather than materialising ~150,000 paths, and take the count from the
         // header so progress has a total without a second pass.
@@ -723,11 +797,11 @@ public class CascExtractorService
         int processed = 0;
         var progressSw = System.Diagnostics.Stopwatch.StartNew();
 
-        foreach (ManifestEntry entry in ManifestService.EnumerateEntries(installation, manifest))
+        foreach (ManifestEntry entry in ManifestService.EnumerateEntries(target, manifest))
         {
             ct.ThrowIfCancellationRequested();
 
-            string fullPath = Path.Combine(installation.FolderPath, entry.RelPath);
+            string fullPath = Path.Combine(outputPath, entry.RelPath);
             if (File.Exists(fullPath))
             {
                 try { File.Delete(fullPath); }
@@ -756,14 +830,15 @@ public class CascExtractorService
         foreach (string prefix in TargetPrefixes)
         {
             string fsPrefix = StripCascNamespace(prefix);
-            string dir = Path.Combine(installation.FolderPath, fsPrefix.TrimEnd('\\'));
+            string dir = Path.Combine(outputPath, fsPrefix.TrimEnd('\\'));
             RemoveEmptyDirectories(dir, log);
         }
         // Also clean up any old-style locales\ directory from pre-v1.1.4 extractions.
-        string oldLocalesDir = Path.Combine(installation.FolderPath, "locales");
+        string oldLocalesDir = Path.Combine(outputPath, "locales");
         RemoveEmptyDirectories(oldLocalesDir, log);
 
-        ManifestService.DeleteManifest(installation);
+        ManifestService.DeleteManifest(target);
+        ManifestService.DeleteRunRecord(target);
         log?.Invoke("Undo complete. Extracted files have been removed.");
     }
 

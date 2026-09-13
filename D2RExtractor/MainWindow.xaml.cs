@@ -34,7 +34,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     // FIFO queue for sequential extraction/update — shared by the per-row button and the bulk
     // buttons. The operation travels with the installation because Extract and Update are queued
     // through the same path but must not be confused: Extract can delete first, Update never does.
-    private readonly Queue<(D2RInstallation Install, OperationKind Kind)> _extractQueue = new();
+    private readonly Queue<(D2RInstallation Install, OperationKind Kind, ExtractionTarget? Only)> _extractQueue = new();
     private bool _extractQueueRunning;
     private AppPreferences _preferences = new();
 
@@ -71,15 +71,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Loads the current manifest for <paramref name="install"/> and calls RefreshState
-    /// with the current preferences. Use this everywhere instead of calling RefreshState directly.
+    /// Re-reads every destination's manifest and rolls the result up into the row's state.
+    /// Use this everywhere instead of refreshing a target or the aggregate directly.
     /// </summary>
     private void RefreshInstallState(D2RInstallation install)
     {
-        var manifest = ManifestService.LoadManifest(install);
-        install.RefreshState(manifest?.IsComplete, manifest?.InternationalExtracted,
-            _preferences.ExtractInternationalFiles,
-            manifest?.InternationalLanguage, _preferences.InternationalLanguage);
+        foreach (ExtractionTarget target in install.EffectiveTargets)
+        {
+            var manifest = ManifestService.LoadManifest(target);
+            target.RefreshState(manifest?.IsComplete, manifest?.InternationalExtracted,
+                _preferences.ExtractInternationalFiles,
+                manifest?.InternationalLanguage, _preferences.InternationalLanguage);
+        }
+
+        install.RefreshAggregateState();
     }
 
     private void OnInstallationsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -223,12 +228,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     // Extract queue
     // -----------------------------------------------------------------------
 
-    private void EnqueueOperation(D2RInstallation install, OperationKind kind)
+    /// <param name="only">
+    /// Restrict the run to this one destination. Null means every enabled destination, which is
+    /// what the row buttons do; the destinations window passes one to act on it alone.
+    /// </param>
+    private void EnqueueOperation(D2RInstallation install, OperationKind kind, ExtractionTarget? only = null)
     {
         if (install.IsQueued || install.IsExtracting) return; // guard against double-enqueue
         install.IsQueued = true;
         install.StatusText = "Queued";
-        _extractQueue.Enqueue((install, kind));
+        _extractQueue.Enqueue((install, kind, only));
         ProcessExtractQueue();
     }
 
@@ -240,14 +249,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             while (_extractQueue.Count > 0)
             {
-                var (install, kind) = _extractQueue.Dequeue();
+                var (install, kind, only) = _extractQueue.Dequeue();
                 if (!install.IsQueued) continue; // was cancelled while waiting
                 install.IsQueued = false;
 
-                if (kind == OperationKind.Update)
-                    await RunUpdateAsync(install);
+                if (kind == OperationKind.Undo)
+                    await RunUndoAsync(install, only);
                 else
-                    await RunExtractAsync(install);
+                    await RunApplyAsync(install, only);
             }
         }
         finally
@@ -294,11 +303,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        var manifest = ManifestService.LoadManifest(install);
-        var kind = CascExtractorService.PlanOperation(
-            manifest, _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage);
+        var targets = install.ActiveTargets;
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this,
+                "This installation has no enabled destinations, so there is nowhere to extract to. " +
+                "Open Destinations to add one or re-enable an existing one.",
+                "No destinations", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
 
-        if (kind == OperationKind.Update)
+        // An update is what happens when anything has already been extracted anywhere. The
+        // destinations with nothing in them get a full extraction inside the same run — see
+        // RunApplyAsync — so this only decides which confirmation to show.
+        if (install.AnyTargetExtracted)
         {
             if (!ConfirmUpdate(install)) return;
             EnqueueOperation(install, OperationKind.Update);
@@ -308,23 +326,46 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         long diskRequired = _preferences.ExtractInternationalFiles
             ? 50L * 1024 * 1024 * 1024   // ~50 GB (base ~45 GB + one language ~1-2 GB)
             : 48L * 1024 * 1024 * 1024;  // ~48 GB base only
-        string? spaceWarning = CascExtractorService.CheckDiskSpace(install.FolderPath, diskRequired);
-        if (spaceWarning != null)
+
+        // Every destination is a separate ~45 GB, and they are often on different drives. Checking
+        // only the game folder would clear a run that fills someone's other disk instead. Two
+        // destinations on the SAME drive need twice the room, so the requirement is summed per
+        // drive rather than checked per folder.
+        foreach (var drive in targets.GroupBy(
+                     t => TryGetDriveRoot(t.FolderPath), StringComparer.OrdinalIgnoreCase))
         {
-            var proceed = MessageBox.Show(spaceWarning + "\n\nContinue anyway?",
+            string? spaceWarning = CascExtractorService.CheckDiskSpace(
+                drive.First().FolderPath, diskRequired * drive.Count());
+
+            if (spaceWarning == null) continue;
+
+            string where = drive.Count() > 1
+                ? $"\n\n{drive.Count()} destinations share this drive, so they need {drive.Count()}× the space."
+                : string.Empty;
+
+            var proceed = MessageBox.Show(spaceWarning + where + "\n\nContinue anyway?",
                 "Disk Space Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (proceed != MessageBoxResult.Yes) return;
         }
+
+        if (!ConfirmSkipsGameFolder(install)) return;
 
         string intlNote = _preferences.ExtractInternationalFiles && !string.IsNullOrEmpty(_preferences.InternationalLanguage)
             ? $"International files for '{_preferences.InternationalLanguage}' will also be extracted, replacing base English audio/text.\n\n"
             : string.Empty;
 
+        string where2 = targets.Count == 1
+            ? $"Extract D2R game files to:\n{targets[0].FolderPath}\n\n"
+            : $"Extract D2R game files to {targets.Count} destinations:\n"
+              + string.Join("\n", targets.Select(t => "  • " + t.FolderPath)) + "\n\n";
+
+        string perTarget = targets.Count > 1
+            ? $"That is roughly 45–70 GB EACH, written one destination after another.\n\n"
+            : "This will extract approximately 45–70 GB of data (depending on whether international files are enabled) " +
+              "and may take 30–90 minutes.\n\n";
+
         var confirm = MessageBox.Show(
-            $"Extract D2R game files for:\n{install.FolderPath}\n\n" +
-            "This will extract approximately 45–70 GB of data (depending on whether international files are enabled) " +
-            "and may take 30–90 minutes.\n\n" +
-            intlNote +
+            where2 + perTarget + intlNote +
             "After a D2R update, use 'Update' to refresh only the files that changed.\n\nStart extraction?",
             "Confirm Extraction", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
@@ -334,15 +375,68 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     /// <summary>
+    /// The drive a path lives on, for grouping destinations that compete for the same free space.
+    /// Falls back to the path itself for anything without one — a UNC share, most likely — so those
+    /// are each checked on their own rather than all being lumped together.
+    /// </summary>
+    private static string TryGetDriveRoot(string path)
+    {
+        try { return Path.GetPathRoot(Path.GetFullPath(path)) ?? path; }
+        catch { return path; }
+    }
+
+    /// <summary>
+    /// Says plainly when nothing is being written into the game folder, because the app's whole
+    /// purpose is load times and this configuration does not improve them.
+    ///
+    /// <para>
+    /// A warning rather than a refusal: extracting only to a mods folder or a staging copy is a
+    /// legitimate thing to want, and the app has no business deciding it knows better. It does have
+    /// a business making sure nobody arrives at it by accident and then wonders why the game is
+    /// exactly as slow as before.
+    /// </para>
+    /// </summary>
+    private bool ConfirmSkipsGameFolder(D2RInstallation install)
+    {
+        if (!install.SkipsGameFolder) return true;
+
+        var proceed = MessageBox.Show(this,
+            "None of this installation's destinations is the game folder itself:\n" +
+            $"{install.FolderPath}\n\n" +
+            "D2R only loads extracted files from its own folder, so this will NOT make the game load " +
+            "faster, and the -direct -txt launch options will find nothing.\n\n" +
+            "That is fine if you are extracting for a mods folder or for manual patching.\n\n" +
+            "Continue?",
+            "No game-folder destination", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        return proceed == MessageBoxResult.Yes;
+    }
+
+    /// <summary>
     /// Confirmation for an update or resume. Deliberately lighter than the extraction dialog: no
     /// size or duration warning, and no disk-space gate, because the whole point is that it writes
     /// only the difference. What it does need to say is that the comparison itself takes a while.
     /// </summary>
     private bool ConfirmUpdate(D2RInstallation install)
     {
+        var targets = install.ActiveTargets;
+
         string what = install.IsInterrupted
-            ? "Resume the interrupted extraction for:"
+            ? "Resume the interrupted extraction in:"
             : "Check for changed game files in:";
+
+        string where = targets.Count == 1
+            ? $"{what}\n{targets[0].FolderPath}\n\n"
+            : $"{what.TrimEnd(':')} {targets.Count} destinations:\n"
+              + string.Join("\n", targets.Select(t => "  • " + t.FolderPath)) + "\n\n";
+
+        // A destination with nothing in it gets a full extraction inside this same run, which is a
+        // very different amount of work from the update the dialog otherwise describes.
+        int fresh = targets.Count(t => !t.HasManifest);
+        string freshNote = fresh > 0
+            ? $"\n{fresh} of these has not been extracted yet and will be written in full " +
+              "(45–70 GB), which takes considerably longer.\n"
+            : string.Empty;
 
         string verifyNote = _preferences.VerifyFileContents
             ? "\n'Verify extracted file contents' is on, so every extracted file will also be " +
@@ -351,11 +445,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             : string.Empty;
 
         var confirm = MessageBox.Show(
-            $"{what}\n{install.FolderPath}\n\n" +
+            where +
             "The game archives will be compared against the extracted files. Only files that are " +
             "new, changed, missing or damaged get written, and files the game no longer ships are " +
             "removed.\n\n" +
             "Comparing takes a few minutes before anything is written.\n" +
+            freshNote +
             verifyNote +
             "\nProceed?",
             install.IsInterrupted ? "Confirm Resume" : "Confirm Update",
@@ -373,13 +468,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if ((sender as System.Windows.Controls.Button)?.Tag is not D2RInstallation install)
             return;
 
+        // Name the folders that will actually be emptied, not the installation's own folder. Those
+        // are the same thing only until someone adds a destination, and a delete confirmation that
+        // names the wrong folder is worse than none: it invites a yes to the wrong question.
+        var affected = install.ActiveTargets.Where(t => t.HasManifest).ToList();
+        if (affected.Count == 0)
+        {
+            Log($"[{install.Name}] Nothing to undo.");
+            return;
+        }
+
+        string where = affected.Count == 1
+            ? $"Undo extraction from:\n{affected[0].FolderPath}\n\n"
+            : $"Undo the extraction from {affected.Count} destinations:\n"
+              + string.Join("\n", affected.Select(t => "  • " + t.FolderPath)) + "\n\n";
+
         string filesDesc = install.IsPartiallyExtracted
             ? "All partially extracted files will be permanently deleted from the 'data' folder."
             : "All extracted files will be permanently deleted from the 'data' folder.";
 
         var confirm = MessageBox.Show(
-            $"Undo extraction for:\n{install.FolderPath}\n\n" +
+            where +
             filesDesc + "\n" +
+            "Only files this app recorded are removed; anything else in those folders is left alone.\n" +
             "The original CASC archives are NOT affected — you can re-extract at any time.\n\n" +
             "Note: you no longer need to undo before updating D2R. Use 'Update' afterwards to " +
             "refresh only the files the patch changed.\n\nProceed?",
@@ -432,7 +543,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             cts.Cancel();
 
         // Clear extraction queue.
-        foreach (var (install, _) in _extractQueue.ToList())
+        foreach (var (install, _, _) in _extractQueue.ToList())
         {
             install.IsQueued = false;
             RefreshInstallState(install);
@@ -611,7 +722,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     /// exact opposite of what this operation is for.
     /// </para>
     /// </summary>
-    private async Task RunUpdateAsync(D2RInstallation install)
+    /// <summary>
+    /// Runs the right operation for every one of this installation's destinations.
+    ///
+    /// <para>
+    /// Both buttons land here, because with more than one destination "extract" and "update" stop
+    /// being properties of the installation and become properties of each destination: a newly
+    /// added mods folder needs a full extraction on the same press that merely updates the game
+    /// folder beside it. Deciding per destination is what makes "add a destination, press Update"
+    /// do the obvious thing.
+    /// </para>
+    ///
+    /// <para>
+    /// Destinations run one after another rather than together. They read the same archives through
+    /// a backend that does not support concurrent access, and two 45 GB writes racing for the same
+    /// disk finish no sooner than one after the other.
+    /// </para>
+    /// </summary>
+    private async Task RunApplyAsync(D2RInstallation install, ExtractionTarget? only = null)
     {
         if (!CascLib.IsDllPresent())
         {
@@ -620,11 +748,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        var manifest = ManifestService.LoadManifest(install);
-        if (manifest == null)
+        // A single named destination runs even when it is disabled: asking for it by name in the
+        // destinations window is a clearer instruction than the checkbox is.
+        var targets = only is not null
+            ? new List<ExtractionTarget> { only }
+            : install.ActiveTargets.ToList();
+
+        if (targets.Count == 0)
         {
-            Log($"[{install.Name}] No manifest found — nothing to update. Run an extraction first.");
-            RefreshInstallState(install);
+            Log($"[{install.Name}] No destinations are enabled — nothing to do.");
             return;
         }
 
@@ -633,32 +765,67 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         install.IsExtracting = true;
         install.Progress = 0;
         install.StatusText = "Starting…";
-        Log($"[{install.Name}] {(install.IsInterrupted ? "Resume" : "Update")} started.");
+
+        int written = 0, removed = 0, index = 0;
 
         try
         {
             var progress = CreateProgressReporter(install);
 
-            UpdateSummary summary = await Task.Run(() => _extractor.UpdateExtraction(
-                install, manifest,
-                _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage,
-                _preferences.VerifyFileContents, progress,
-                msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+            foreach (ExtractionTarget target in targets)
+            {
+                cts.Token.ThrowIfCancellationRequested();
+                index++;
+
+                // Only name the destination when there is more than one; otherwise every log line
+                // would grow a folder path that never changes.
+                string tag = targets.Count > 1
+                    ? $"[{install.Name} → {target.DisplayName}]"
+                    : $"[{install.Name}]";
+
+                var manifest = ManifestService.LoadManifest(target);
+
+                if (manifest == null)
+                {
+                    Log($"{tag} Extraction started{(targets.Count > 1 ? $" ({index} of {targets.Count})" : "")}.");
+
+                    await Task.Run(() => _extractor.Extract(
+                        install, target,
+                        _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage,
+                        progress, msg => AppendLog($"{tag} {msg}"), cts.Token));
+
+                    Log($"{tag} Extraction complete.");
+                }
+                else
+                {
+                    Log($"{tag} {(target.IsInterrupted ? "Resume" : "Update")} started" +
+                        $"{(targets.Count > 1 ? $" ({index} of {targets.Count})" : "")}.");
+
+                    UpdateSummary summary = await Task.Run(() => _extractor.UpdateExtraction(
+                        install, target, manifest,
+                        _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage,
+                        _preferences.VerifyFileContents, progress,
+                        msg => AppendLog($"{tag} {msg}"), cts.Token));
+
+                    written += summary.FilesWritten;
+                    removed += summary.FilesRemoved;
+
+                    Log(summary.FilesWritten == 0 && summary.FilesRemoved == 0
+                        ? $"{tag} Already up to date — nothing written."
+                        : $"{tag} Update complete: {summary.FilesWritten:N0} written, " +
+                          $"{summary.FilesRemoved:N0} removed, {summary.FilesUnchanged:N0} unchanged.");
+                }
+            }
 
             RefreshInstallState(install);
             install.Progress = 100;
-            install.StatusText = summary.FilesWritten == 0 && summary.FilesRemoved == 0
+            install.StatusText = written == 0 && removed == 0 && install.IsExtracted
                 ? "Up to date"
-                : "Updated";
-
-            Log(summary.FilesWritten == 0 && summary.FilesRemoved == 0
-                ? $"[{install.Name}] Already up to date — nothing written."
-                : $"[{install.Name}] Update complete: {summary.FilesWritten:N0} written, " +
-                  $"{summary.FilesRemoved:N0} removed, {summary.FilesUnchanged:N0} unchanged.");
+                : install.StatusText;
         }
         catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
         {
-            Log($"[{install.Name}] Update cancelled.");
+            Log($"[{install.Name}] Cancelled.");
             install.StatusText = "Cancelled";
             RefreshInstallState(install);
         }
@@ -679,59 +846,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private async Task RunExtractAsync(D2RInstallation install)
-    {
-        if (!CascLib.IsDllPresent())
-        {
-            MessageBox.Show("CascLib.dll is not found next to the executable.",
-                "Missing CascLib.dll", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        var cts = new CancellationTokenSource();
-        _activeCts[install] = cts;
-        install.IsExtracting = true;
-        install.Progress = 0;
-        install.StatusText = "Starting…";
-        Log($"[{install.Name}] Extraction started.");
-
-        try
-        {
-            var progress = CreateProgressReporter(install);
-
-            await Task.Run(() => _extractor.Extract(install, _preferences.ExtractInternationalFiles,
-                _preferences.InternationalLanguage, progress,
-                msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
-
-            RefreshInstallState(install);
-            install.Progress = 100;
-            install.StatusText = "Extracted";
-            Log($"[{install.Name}] Extraction complete.");
-        }
-        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
-        {
-            Log($"[{install.Name}] Extraction cancelled.");
-            install.StatusText = "Cancelled";
-            RefreshInstallState(install);
-        }
-        catch (Exception ex)
-        {
-            Log($"[{install.Name}] ERROR: {ex.Message}");
-            install.StatusText = "Error";
-            RefreshInstallState(install);
-        }
-        finally
-        {
-            install.IsExtracting = false;
-            install.IsEnumerating = false;
-            install.EnumeratingFile = string.Empty;
-            install.Progress = 0;
-            _activeCts.Remove(install);
-            cts.Dispose();
-        }
-    }
-
-    private async Task RunUndoAsync(D2RInstallation install)
+    private async Task RunUndoAsync(D2RInstallation install, ExtractionTarget? only = null)
     {
         var cts = new CancellationTokenSource();
         _activeCts[install] = cts;
@@ -749,8 +864,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 install.StatusText = $"Removing {p.FilesProcessed:N0}/{p.TotalFiles:N0}";
             });
 
-            await Task.Run(() => _extractor.UndoExtraction(install, progress,
-                msg => AppendLog($"[{install.Name}] {msg}"), cts.Token));
+            // Only destinations that actually have a manifest. Asking the extractor to undo one
+            // that has never been extracted throws, and "undo everything" should quietly skip the
+            // destinations with nothing in them rather than failing the whole operation.
+            var targets = (only is not null ? new List<ExtractionTarget> { only } : install.ActiveTargets.ToList())
+                .Where(t => t.HasManifest).ToList();
+
+            foreach (ExtractionTarget target in targets)
+            {
+                cts.Token.ThrowIfCancellationRequested();
+
+                string tag = targets.Count > 1
+                    ? $"[{install.Name} → {target.DisplayName}]"
+                    : $"[{install.Name}]";
+
+                await Task.Run(() => _extractor.UndoExtraction(target, progress,
+                    msg => AppendLog($"{tag} {msg}"), cts.Token));
+            }
 
             RefreshInstallState(install);
             install.Progress = 0;
@@ -825,6 +955,44 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ChangeLogMenuItem_Click(object sender, RoutedEventArgs e)
     {
         new Views.ChangeLogWindow { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>
+    /// Opens the destinations manager for one installation, and runs whatever it asks for.
+    ///
+    /// <para>
+    /// The window edits and saves the list itself; what it hands back is a request to extract or
+    /// undo a single destination, which goes through the normal queue so it reports progress on the
+    /// row and cancels like anything else.
+    /// </para>
+    /// </summary>
+    private void Destinations_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.Controls.Button)?.Tag is not D2RInstallation install) return;
+
+        var win = new Views.DestinationsWindow(install) { Owner = this };
+
+        // Saved fires on every edit, not just at the end, so the row's status keeps up with a
+        // destination being added, disabled or removed while the window is still open.
+        win.Saved += () => { Save(); RefreshInstallState(install); RefreshToolbarState(); };
+
+        bool acted = win.ShowDialog() == true;
+
+        Save();
+        RefreshInstallState(install);
+        RefreshToolbarState();
+
+        if (!acted || win.RequestTarget is not { } target) return;
+
+        switch (win.Request)
+        {
+            case Views.DestinationRequest.Apply:
+                EnqueueOperation(install, OperationKind.Update, target);
+                break;
+            case Views.DestinationRequest.Undo:
+                EnqueueOperation(install, OperationKind.Undo, target);
+                break;
+        }
     }
 
     private void SponsorButton_Click(object sender, RoutedEventArgs e)

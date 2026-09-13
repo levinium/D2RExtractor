@@ -102,6 +102,42 @@ required**, unlike the CDN-download workaround older versions needed. Both
 readers produce an identical set of files, so it makes no difference to the
 game which one you started from.
 
+### You can choose where it extracts to
+
+![Destinations](docs/screenshots/destinations.png)
+
+By default an installation extracts into the game folder, which is the only place
+D2R itself reads in `-direct` mode. That is the whole story for most people, and
+the feature below costs nothing to ignore.
+
+The folder button on each row opens **Destinations**, where you can add more. Every
+Extract and Update then writes to all of them, one after another — which is what
+makes a mods folder, or a separate copy for manual patching, practical to keep in
+step with the game.
+
+Each destination keeps its own records. They can be extracted, updated and undone
+independently, and a destination that shares a folder with files of your own loses
+exactly what this app put there and nothing else. The game folder can be turned off
+like any other destination; the app just says plainly when nothing is writing there,
+because then the game gains nothing and `-direct -txt` will find no files.
+
+Destinations cannot be nested inside one another. Each one's update treats
+unrecognized files under its tree as leftovers a patch removed, so overlapping
+destinations would quietly delete each other's files.
+
+### It records what each run changed
+
+![The last run's changes](docs/screenshots/last-run-changes.png)
+
+After an update, **Changes** in the Destinations window lists every file that run
+added, replaced or removed, with sizes, a filter, and a plain-text export. It is
+the answer to "what did that patch actually touch?", which is otherwise
+unanswerable once the run is over.
+
+Only the last run is kept, per destination. A fresh extraction records a summary
+rather than a list, because every one of its ~150,000 files is an addition and the
+list would just be the manifest again.
+
 ### It keeps itself up to date
 
 ![An update offered, with the release notes](docs/screenshots/update-available.png)
@@ -191,11 +227,15 @@ offering a choice the payment page never hears about is worse than not asking.
 D2RExtractor\
 ├── Models\
 │   ├── D2RInstallation.cs       Observable model for each managed installation
-│   └── ExtractionManifest.cs    Per-install record of extracted files
+│   ├── ExtractionTarget.cs      One destination, with its own manifest and state
+│   ├── ExtractionChange.cs      What a run added, replaced or removed
+│   └── ExtractionManifest.cs    Per-destination record of extracted files
 ├── Services\
 │   ├── CascExtractorService.cs  Format detection + extract / update / undo logic
 │   ├── IExtractionBackend.cs    Backend abstraction (CascLib vs Steam native)
 │   ├── ManifestService.cs       JSON settings + manifest persistence
+│   ├── UpdateService.cs         Reads the releases feed
+│   ├── UpdateInstaller.cs       Downloads, verifies and swaps in a new version
 │   └── Steam\                   Native reader for the Steam static-container format
 │       ├── SteamBuildConfig.cs  Parses data\.build.config
 │       ├── StaticContainer.cs   EKey → data-file location + blob reads
@@ -213,13 +253,25 @@ extraction, manifest and progress loop rather than one per format. That is why
 Steam support arriving in 1.1.5 did not change anything about how Battle.net
 installs behave, and why the two produce byte-identical output trees.
 
+The other seam worth knowing about is that an installation's folder is the
+**source** — where the archives are read from — while an `ExtractionTarget` is the
+**destination**. Until 1.1.8 those were the same string in the same property, which
+is the only reason extracting anywhere else was not possible before.
+
 ### Where the records live
 
-**Settings** are in `%AppData%\D2RExtractor\settings.json`.
+**Settings** are in `%AppData%\D2RExtractor\settings.json`, which also holds each
+installation's list of destinations.
 
-**Manifests** are in the game folder: `<D2RPath>\data\.extraction_manifest.json`
-holds a small header, and `<D2RPath>\data\.extraction_files.txt` holds one
-record per extracted file — path, content key, size.
+**Manifests** live inside each destination, not centrally:
+`<destination>\data\.extraction_manifest.json` holds a small header, and
+`<destination>\data\.extraction_files.txt` holds one record per extracted file —
+path, content key, size. Beside them, `.extraction_run.json` and
+`.extraction_changes.txt` record what the last run did.
+
+Keeping the records in the destination is what makes destinations independent, and
+it is why upgrading from 1.1.7 needs no migration: the manifest was already there,
+which is exactly where the default destination looks for it.
 
 That split is deliberate. The manifest used to be one JSON file rewritten in
 full every 500 files, so its cost grew with the square of the file count: about

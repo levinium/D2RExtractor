@@ -1,0 +1,69 @@
+<Window x:Class="D2RExtractor.Views.TextPromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rename"
+        Icon="/Resources/app.ico"
+        Width="420" SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="#1A1A1A">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="AccentBrush"   Color="#C8A951"/>
+        <SolidColorBrush x:Key="TextBrush"     Color="#E0E0E0"/>
+        <SolidColorBrush x:Key="Surface2Brush" Color="#2E2E2E"/>
+
+        <Style x:Key="BaseButtonStyle" TargetType="Button">
+            <Setter Property="Foreground"   Value="{StaticResource TextBrush}"/>
+            <Setter Property="Background"   Value="{StaticResource Surface2Brush}"/>
+            <Setter Property="BorderBrush"  Value="#444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"      Value="14,6"/>
+            <Setter Property="FontSize"     Value="12"/>
+            <Setter Property="Cursor"       Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#383838"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AccentButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background"  Value="#4A3A10"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground"  Value="{StaticResource AccentBrush}"/>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="20,16">
+        <TextBlock x:Name="PromptLabel" Foreground="{StaticResource TextBrush}"
+                   FontSize="12" Margin="0,0,0,8"/>
+
+        <TextBox x:Name="ValueBox"
+                 Background="{StaticResource Surface2Brush}"
+                 Foreground="{StaticResource TextBrush}"
+                 CaretBrush="{StaticResource TextBrush}"
+                 BorderBrush="#555" BorderThickness="1"
+                 Padding="8,5" FontSize="13"
+                 KeyDown="ValueBox_KeyDown"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="OK" Width="88" Margin="0,0,8,0"
+                    Style="{StaticResource AccentButtonStyle}" Click="Ok_Click"/>
+            <Button Content="Cancel" Width="88"
+                    Style="{StaticResource BaseButtonStyle}" Click="Cancel_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

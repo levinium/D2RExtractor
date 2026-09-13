@@ -75,21 +75,21 @@ public static class ManifestService
     }
 
     // -----------------------------------------------------------------------
-    // Per-installation extraction manifest
+    // Per-destination extraction manifest
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Loads the extraction manifest for the given installation.
+    /// Loads the extraction manifest for the given destination.
     /// Returns null if no manifest exists (not yet extracted).
     /// </summary>
-    public static ExtractionManifest? LoadManifest(D2RInstallation installation)
+    public static ExtractionManifest? LoadManifest(ExtractionTarget target)
     {
-        if (!File.Exists(installation.ManifestPath))
+        if (!File.Exists(target.ManifestPath))
             return null;
 
         try
         {
-            string json = File.ReadAllText(installation.ManifestPath);
+            string json = File.ReadAllText(target.ManifestPath);
             return JsonConvert.DeserializeObject<ExtractionManifest>(json);
         }
         catch
@@ -99,7 +99,7 @@ public static class ManifestService
     }
 
     /// <summary>
-    /// Saves the extraction manifest header for the given installation.
+    /// Saves the extraction manifest header for the given destination.
     ///
     /// <para>
     /// Written to a temp file and moved into place. A plain truncate-and-write can be interrupted
@@ -109,9 +109,9 @@ public static class ManifestService
     /// atomic on the same volume, so the manifest is always either the old one or the new one.
     /// </para>
     /// </summary>
-    public static void SaveManifest(D2RInstallation installation, ExtractionManifest manifest)
+    public static void SaveManifest(ExtractionTarget target, ExtractionManifest manifest)
     {
-        string path = installation.ManifestPath;
+        string path = target.ManifestPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
         string tmp = path + ".tmp";
@@ -124,14 +124,14 @@ public static class ManifestService
     /// Both must go: a stale sidecar left behind would keep the <c>data\</c> folder non-empty
     /// and misrepresent a fresh install as having been extracted.
     /// </summary>
-    public static void DeleteManifest(D2RInstallation installation)
+    public static void DeleteManifest(ExtractionTarget target)
     {
         foreach (string path in new[]
                  {
-                     installation.ManifestPath,
-                     installation.ManifestPath + ".tmp",
-                     GetEntryFilePath(installation, ExtractionManifest.DefaultEntryFile),
-                     GetEntryFilePath(installation, ExtractionManifest.DefaultEntryFile) + ".new",
+                     target.ManifestPath,
+                     target.ManifestPath + ".tmp",
+                     GetEntryFilePath(target, ExtractionManifest.DefaultEntryFile),
+                     GetEntryFilePath(target, ExtractionManifest.DefaultEntryFile) + ".new",
                  })
         {
             if (File.Exists(path))
@@ -142,7 +142,7 @@ public static class ManifestService
     }
 
     // -----------------------------------------------------------------------
-    // Per-installation file list (the manifest's sidecar)
+    // Per-destination file list (the manifest's sidecar)
     //
     // Format: one record per line, "<relPath>\t<contentKeyHex>\t<size>", UTF-8 without a BOM,
     // LF-terminated. Tabs cannot occur in a Windows path, so no escaping is needed. The key may
@@ -150,17 +150,17 @@ public static class ManifestService
     // -----------------------------------------------------------------------
 
     /// <summary>Absolute path of the sidecar that holds <paramref name="entryFile"/> for this install.</summary>
-    public static string GetEntryFilePath(D2RInstallation installation, string? entryFile)
+    public static string GetEntryFilePath(ExtractionTarget target, string? entryFile)
     {
-        string dir = Path.GetDirectoryName(installation.ManifestPath)!;
+        string dir = Path.GetDirectoryName(target.ManifestPath)!;
         return Path.Combine(dir, string.IsNullOrWhiteSpace(entryFile)
             ? ExtractionManifest.DefaultEntryFile
             : entryFile);
     }
 
     /// <summary>Absolute path of the sidecar described by <paramref name="manifest"/>.</summary>
-    public static string GetEntryFilePath(D2RInstallation installation, ExtractionManifest manifest) =>
-        GetEntryFilePath(installation, manifest.EntryFile);
+    public static string GetEntryFilePath(ExtractionTarget target, ExtractionManifest manifest) =>
+        GetEntryFilePath(target, manifest.EntryFile);
 
     /// <summary>
     /// Streams every file recorded in <paramref name="manifest"/>, presenting both schema versions
@@ -173,7 +173,7 @@ public static class ManifestService
     /// </para>
     /// </summary>
     public static IEnumerable<ManifestEntry> EnumerateEntries(
-        D2RInstallation installation, ExtractionManifest manifest)
+        ExtractionTarget target, ExtractionManifest manifest)
     {
         if (manifest.IsLegacySchema)
         {
@@ -185,7 +185,7 @@ public static class ManifestService
             yield break;
         }
 
-        string path = GetEntryFilePath(installation, manifest);
+        string path = GetEntryFilePath(target, manifest);
         if (!File.Exists(path))
             yield break;
 
@@ -228,9 +228,9 @@ public static class ManifestService
     /// update, where entries have been removed or re-keyed and appending is no longer enough.
     /// </summary>
     public static void WriteAllEntries(
-        D2RInstallation installation, ExtractionManifest manifest, IEnumerable<ManifestEntry> entries)
+        ExtractionTarget target, ExtractionManifest manifest, IEnumerable<ManifestEntry> entries)
     {
-        string path = GetEntryFilePath(installation, manifest);
+        string path = GetEntryFilePath(target, manifest);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
         string tmp = path + ".new";
@@ -249,9 +249,9 @@ public static class ManifestService
     }
 
     /// <summary>Removes the sidecar so a fresh extraction does not append to a previous run's list.</summary>
-    public static void ResetEntries(D2RInstallation installation, ExtractionManifest manifest)
+    public static void ResetEntries(ExtractionTarget target, ExtractionManifest manifest)
     {
-        string path = GetEntryFilePath(installation, manifest);
+        string path = GetEntryFilePath(target, manifest);
         if (File.Exists(path))
             File.Delete(path);
         manifest.EntryCount = 0;
@@ -313,6 +313,145 @@ public static class ManifestService
     }
 
     /// <summary>Opens an <see cref="EntryWriter"/> that appends to this manifest's sidecar.</summary>
-    public static EntryWriter OpenEntryWriter(D2RInstallation installation, ExtractionManifest manifest) =>
-        new(GetEntryFilePath(installation, manifest));
+    public static EntryWriter OpenEntryWriter(ExtractionTarget target, ExtractionManifest manifest) =>
+        new(GetEntryFilePath(target, manifest));
+
+    // -----------------------------------------------------------------------
+    // Last run's changes
+    //
+    // Two files beside the manifest: ".extraction_run.json" (the summary) and
+    // ".extraction_changes.txt" (one record per changed file, "<A|U|R>\t<relPath>\t<size>").
+    // Only the most recent run is kept — the previous one is overwritten, not accumulated.
+    // -----------------------------------------------------------------------
+
+    private const string RunRecordFile = ".extraction_run.json";
+
+    private static string RunRecordPath(ExtractionTarget target) =>
+        Path.Combine(Path.GetDirectoryName(target.ManifestPath)!, RunRecordFile);
+
+    private static string ChangeListPath(ExtractionTarget target) =>
+        Path.Combine(Path.GetDirectoryName(target.ManifestPath)!, ExtractionRunRecord.DefaultChangeFile);
+
+    /// <summary>The last run's summary for this destination, or null if it has never run.</summary>
+    public static ExtractionRunRecord? LoadRunRecord(ExtractionTarget target)
+    {
+        string path = RunRecordPath(target);
+        if (!File.Exists(path)) return null;
+
+        try
+        {
+            return JsonConvert.DeserializeObject<ExtractionRunRecord>(File.ReadAllText(path));
+        }
+        catch
+        {
+            // A record nobody can read is the same as no record: this is a history note, and
+            // failing an update over it would be absurd.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Writes the last run's summary, atomically, for the same reason the manifest is written that
+    /// way — a torn file here reads as "never ran" and silently loses the history.
+    /// </summary>
+    public static void SaveRunRecord(ExtractionTarget target, ExtractionRunRecord record)
+    {
+        string path = RunRecordPath(target);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        string tmp = path + ".tmp";
+        File.WriteAllText(tmp, JsonConvert.SerializeObject(record, Formatting.Indented));
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    /// <summary>
+    /// Replaces the change list for this destination. Written once at the end of a run, when the
+    /// full set is known.
+    /// </summary>
+    public static void WriteChanges(ExtractionTarget target, IEnumerable<ExtractionChange> changes)
+    {
+        string path = ChangeListPath(target);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        string tmp = path + ".new";
+        using (var writer = CreateEntryWriter(tmp, append: false))
+        {
+            foreach (ExtractionChange change in changes)
+            {
+                writer.Write(change.Kind switch
+                {
+                    ChangeKind.Added => 'A',
+                    ChangeKind.Updated => 'U',
+                    _ => 'R',
+                });
+                writer.Write('\t');
+                writer.Write(change.RelPath);
+                writer.Write('\t');
+                writer.Write(change.Size);
+                writer.Write('\n');
+            }
+        }
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    /// <summary>Streams the last run's change list. Empty when there is none.</summary>
+    public static IEnumerable<ExtractionChange> EnumerateChanges(ExtractionTarget target)
+    {
+        string path = ChangeListPath(target);
+        if (!File.Exists(path)) yield break;
+
+        foreach (string line in File.ReadLines(path))
+        {
+            if (line.Length < 4) continue;
+
+            int t1 = line.IndexOf('\t');
+            if (t1 != 1) continue;
+
+            int t2 = line.IndexOf('\t', t1 + 1);
+            if (t2 < 0) continue;
+
+            ChangeKind kind = line[0] switch
+            {
+                'A' => ChangeKind.Added,
+                'U' => ChangeKind.Updated,
+                'R' => ChangeKind.Removed,
+                _ => (ChangeKind)(-1),
+            };
+            if ((int)kind < 0) continue;
+
+            long.TryParse(line[(t2 + 1)..], out long size);
+            yield return new ExtractionChange(kind, line[(t1 + 1)..t2], size);
+        }
+    }
+
+    /// <summary>Removes the run history for this destination, as part of Undo.</summary>
+    public static void DeleteRunRecord(ExtractionTarget target)
+    {
+        foreach (string path in new[]
+                 {
+                     RunRecordPath(target),
+                     RunRecordPath(target) + ".tmp",
+                     ChangeListPath(target),
+                     ChangeListPath(target) + ".new",
+                 })
+        {
+            if (File.Exists(path))
+            {
+                try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every file this destination's bookkeeping owns. The extraction scan skips these: they live
+    /// inside the folder being scanned but are not extracted content, and counting them as such
+    /// would have an update try to "remove" them on the next run.
+    /// </summary>
+    public static IEnumerable<string> BookkeepingPaths(ExtractionTarget target, ExtractionManifest manifest)
+    {
+        yield return target.ManifestPath;
+        yield return GetEntryFilePath(target, manifest);
+        yield return RunRecordPath(target);
+        yield return ChangeListPath(target);
+    }
 }

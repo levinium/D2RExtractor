@@ -22,6 +22,22 @@ public partial class ChangeLogWindow : Window
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
         AddEntry("1.1.8", [
+            "Each installation can now extract somewhere other than the game folder, or to several "
+                + "places at once. The folder button on each row opens Destinations. By default there is "
+                + "one — the game folder — and everything works exactly as before; add another and every "
+                + "Extract and Update writes to all of them, which is what makes a mods folder or a "
+                + "separate copy for manual patching practical.",
+            "Each destination keeps its own records, so they can be extracted, updated and undone "
+                + "independently, and a destination sharing a folder with your own files loses exactly "
+                + "what this app put there and nothing else.",
+            "The game folder can be turned off like any other destination, but the app says plainly "
+                + "when nothing is writing there — D2R only loads extracted files from its own folder, "
+                + "so -direct -txt would find nothing.",
+            "Added a record of what the last run changed, per destination. The Changes button lists "
+                + "every file that run added, replaced or removed, with sizes, filters and a plain-text "
+                + "export — the answer to 'what did that patch actually touch?'.",
+            "The Update and Undo confirmations now name the folders that will actually be written to "
+                + "or emptied, rather than the installation folder.",
             "The app now checks for new releases and can install them itself. When a newer version is "
                 + "published, a gold 'Update to ...' button appears at the top right; pressing it shows what "
                 + "changed and offers to install. The download is checked against its published checksum "

@@ -341,7 +341,7 @@
                         </GridViewColumn>
 
                         <!-- Path column -->
-                        <GridViewColumn Header="Folder Path" Width="280">
+                        <GridViewColumn Header="Folder Path" Width="250">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding FolderPath}"
@@ -350,7 +350,7 @@
                                                VerticalAlignment="Center"
                                                Padding="4,0"
                                                TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding FolderPath}"/>
+                                               ToolTip="{Binding TargetSummary}"/>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
@@ -409,7 +409,7 @@
                         </GridViewColumn>
 
                         <!-- Actions column -->
-                        <GridViewColumn Header="Actions" Width="320">
+                        <GridViewColumn Header="Actions" Width="350">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="4,4" VerticalAlignment="Center">
@@ -434,7 +434,23 @@
                                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
                                                 Click="CancelButton_Click"
                                                 Tag="{Binding}"
-                                                Width="60"/>
+                                                Width="60"
+                                                Margin="0,0,6,0"/>
+
+                                        <!-- The advanced door: hidden in plain sight rather than
+                                             behind a setting, because the people who want several
+                                             destinations should be able to find it, and everyone
+                                             else can ignore one small icon. -->
+                                        <Button Style="{StaticResource BaseButtonStyle}"
+                                                Visibility="{Binding IsIdle, Converter={StaticResource BoolToVis}}"
+                                                ToolTip="Destinations and last-run changes"
+                                                AutomationProperties.Name="Destinations"
+                                                Click="Destinations_Click"
+                                                Tag="{Binding}"
+                                                Width="30" Padding="0,3">
+                                            <TextBlock Text="&#xE8DA;" FontFamily="Segoe MDL2 Assets"
+                                                       FontSize="13" VerticalAlignment="Center"/>
+                                        </Button>
                                     </StackPanel>
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
