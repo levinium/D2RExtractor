@@ -296,3 +296,8 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 Diablo II: Resurrected is a trademark of Blizzard Entertainment. This is an
 unofficial tool and is not affiliated with or endorsed by Blizzard.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The Diablo II trademark notice above is unaffected
+by it: that is a statement about Blizzard, not a licence over this code.

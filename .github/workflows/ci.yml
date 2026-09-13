@@ -1,0 +1,30 @@
+# Build every push and pull request.
+#
+# Windows only, because the app targets net8.0-windows: it uses WPF, which does
+# not build anywhere else. There is no test project yet, so this proves the tree
+# compiles and nothing more - which is still the difference between a broken
+# main branch that is noticed now and one that is noticed at release time.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore D2RExtractor.sln
+
+      - name: Build
+        run: dotnet build D2RExtractor.sln --no-restore -c Release

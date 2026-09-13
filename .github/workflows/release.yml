@@ -1,0 +1,93 @@
+# Publish a release when a version tag is pushed.
+#
+#   git tag D2RExtractor_v1.1.8 && git push origin D2RExtractor_v1.1.8
+#
+# The tag pattern is the one this repository has always used, rather than the
+# bare "v1.1.8" other projects use. Changing it would orphan every existing
+# release link, which is a worse trade than an unusual prefix.
+#
+# Releases are built here rather than on a developer's machine, so the artifact
+# people download is demonstrably the one this repository produced. The workflow
+# logs are public and the tag names the exact commit.
+name: Release
+
+on:
+  push:
+    tags: ["D2RExtractor_v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      # Checked rather than trusted: a mismatch would publish one version as a
+      # binary reporting another, and the download page would disagree with the
+      # About box forever after.
+      - name: Check the tag matches the version in the build
+        shell: pwsh
+        run: |
+          $csproj = 'D2RExtractor/D2RExtractor.csproj'
+          $version = ([xml](Get-Content $csproj)).Project.PropertyGroup.Version |
+                     Where-Object { $_ } | Select-Object -First 1
+
+          $tag = "${{ github.ref_name }}" -replace '^D2RExtractor_v?', ''
+
+          if ($version -ne $tag) {
+            throw "Tag $tag does not match <Version> $version. Bump the csproj, or retag."
+          }
+
+          Write-Host "Version $version matches the tag."
+
+      # CascLib.dll is committed to the repository, so the build is reproducible
+      # here. publish.ps1 fails loudly if it ever goes missing, because its
+      # absence is a Condition in the csproj rather than an error - a publish
+      # without it succeeds and ships an app that cannot open a Battle.net
+      # install.
+      #
+      # SponsorUrl comes from a repository variable, so the official release
+      # carries the support button and a fork building from this same workflow
+      # does not. Unset, the button does not render at all.
+      - name: Publish
+        shell: pwsh
+        run: |
+          $sponsor = "${{ vars.SPONSOR_URL }}"
+
+          if ($sponsor) {
+            ./publish.ps1 -SponsorUrl $sponsor
+          } else {
+            ./publish.ps1
+          }
+
+      # The binary is not code-signed, so a checksum published beside it is the
+      # one thing that lets a cautious person confirm they got the file this
+      # workflow built.
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'publish.ps1 produced no zip.' }
+
+          $hash = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash
+          "$hash  $($zip.Name)" | Out-File -FilePath "$($zip.FullName).sha256" -Encoding ascii
+
+          Write-Host "$($zip.Name)  SHA256: $hash"
+
+      # A draft, so the artifacts can be looked at before anybody can download
+      # them. Publishing is a second, separate, deliberate action.
+      - name: Create the release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.sha256
