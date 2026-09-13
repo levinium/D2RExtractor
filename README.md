@@ -18,7 +18,11 @@ track of every file it wrote, and can undo the whole thing.
 
 ## Download
 
-**[Download D2RExtractor-Compiled-Standalone_v1.1.8.zip](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_v1.1.8/D2RExtractor-Compiled-Standalone_v1.1.8.zip)** (63 MB)
+**[Download D2RExtractor-Compiled-Standalone_v1.1.8.zip](https://github.com/levinium/D2RExtractor/releases/download/D2RExtractor_v1.1.8/D2RExtractor-Compiled-Standalone_v1.1.8.zip)** (65 MB)
+
+A `.sha256` is published beside it. The build is not code-signed, so that
+checksum is the one way to confirm you have the file the release workflow
+produced — its log is public and names the commit.
 
 Unzip it anywhere and run `D2RExtractor.exe`. That is the whole installation.
 There is no setup step, no admin prompt and no registry entry, because the .NET
