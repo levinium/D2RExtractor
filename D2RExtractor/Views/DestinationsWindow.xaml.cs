@@ -121,21 +121,18 @@ public partial class DestinationsWindow : Window
     /// </remarks>
     private string? Validate(string folder)
     {
-        string full;
-        try { full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)); }
-        catch { return "That path is not valid."; }
+        string? full = DestinationPaths.Normalize(folder);
+        if (full is null) return "That path is not valid.";
 
         if (!Directory.Exists(full))
             return "That folder does not exist.";
 
         foreach (ExtractionTarget existing in _targets)
         {
-            string other = Path.TrimEndingDirectorySeparator(Path.GetFullPath(existing.FolderPath));
-
-            if (string.Equals(full, other, StringComparison.OrdinalIgnoreCase))
+            if (DestinationPaths.AreSame(full, existing.FolderPath))
                 return "That folder is already a destination for this installation.";
 
-            if (IsUnder(full, other) || IsUnder(other, full))
+            if (DestinationPaths.Overlap(full, existing.FolderPath))
                 return "Destinations cannot be nested inside one another.\n\n" +
                        $"This folder and '{existing.DisplayName}' overlap, which would make each one " +
                        "treat the other's files as leftovers and delete them on the next update.";
@@ -143,9 +140,6 @@ public partial class DestinationsWindow : Window
 
         return null;
     }
-
-    private static bool IsUnder(string path, string maybeParent) =>
-        path.StartsWith(maybeParent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private void RemoveTarget_Click(object sender, RoutedEventArgs e)
     {

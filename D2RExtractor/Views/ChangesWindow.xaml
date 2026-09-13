@@ -102,13 +102,19 @@
                    TextWrapping="Wrap"/>
 
         <StackPanel x:Name="FilterRow" Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-            <CheckBox x:Name="ShowAdded" IsChecked="True" Click="Filter_Changed"
+            <!-- Checked/Unchecked rather than Click: Click fires only for a mouse press or the
+                 space bar, so a screen reader toggling these through the automation provider would
+                 flip the box and leave the list unfiltered. -->
+            <CheckBox x:Name="ShowAdded" IsChecked="True"
+                      Checked="Filter_Changed" Unchecked="Filter_Changed"
                       Foreground="{StaticResource AddedBrush}" VerticalContentAlignment="Center"
                       Margin="0,0,14,0" Content="Added"/>
-            <CheckBox x:Name="ShowUpdated" IsChecked="True" Click="Filter_Changed"
+            <CheckBox x:Name="ShowUpdated" IsChecked="True"
+                      Checked="Filter_Changed" Unchecked="Filter_Changed"
                       Foreground="{StaticResource UpdatedBrush}" VerticalContentAlignment="Center"
                       Margin="0,0,14,0" Content="Replaced"/>
-            <CheckBox x:Name="ShowRemoved" IsChecked="True" Click="Filter_Changed"
+            <CheckBox x:Name="ShowRemoved" IsChecked="True"
+                      Checked="Filter_Changed" Unchecked="Filter_Changed"
                       Foreground="{StaticResource RemovedBrush}" VerticalContentAlignment="Center"
                       Margin="0,0,20,0" Content="Removed"/>
 

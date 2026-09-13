@@ -121,12 +121,7 @@ public class ExtractionTarget : INotifyPropertyChanged
     /// <c>-direct</c> mode can actually read.
     /// </summary>
     public bool IsGameFolder(string installFolderPath) =>
-        !string.IsNullOrWhiteSpace(FolderPath)
-        && !string.IsNullOrWhiteSpace(installFolderPath)
-        && string.Equals(
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(FolderPath)),
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(installFolderPath)),
-            StringComparison.OrdinalIgnoreCase);
+        DestinationPaths.AreSame(FolderPath, installFolderPath);
 
     /// <summary>Updates cached manifest state and refreshes the dependent UI properties.</summary>
     /// <param name="manifestIsComplete">null = no manifest, false = interrupted, true = complete.</param>

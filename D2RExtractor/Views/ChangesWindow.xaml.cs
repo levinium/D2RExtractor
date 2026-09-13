@@ -79,12 +79,18 @@ public partial class ChangesWindow : Window
         string when = record.RanAt.ToLocalTime().ToString("d MMM yyyy, HH:mm");
         string what = record.Kind == RunKind.Extract ? "Full extraction" : "Update";
 
+        // FormatBytes renders zero as an em-dash, which reads fine in a size column and badly in a
+        // sentence: "(— written)".
+        string written = record.BytesWritten > 0
+            ? $"{ChangeRow.FormatBytes(record.BytesWritten)} written"
+            : "nothing written";
+
         Summary.Text = record.Kind == RunKind.Extract
             ? $"{what} on {when} — {record.FilesAdded:N0} files written "
               + $"({ChangeRow.FormatBytes(record.BytesWritten)})."
             : $"{what} on {when} — {record.FilesAdded:N0} added, {record.FilesUpdated:N0} replaced, "
               + $"{record.FilesRemoved:N0} removed, {record.FilesUnchanged:N0} unchanged "
-              + $"({ChangeRow.FormatBytes(record.BytesWritten)} written).";
+              + $"({written}).";
 
         if (!record.HasChangeList)
         {
