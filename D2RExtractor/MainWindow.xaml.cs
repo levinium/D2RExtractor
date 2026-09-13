@@ -768,6 +768,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         int written = 0, removed = 0, index = 0;
 
+        // A fresh extraction is work even though it contributes nothing to the update counters,
+        // which only the update branch fills in. Without this a run that just wrote 41.7 GB into an
+        // empty destination reported "Up to date", which is true of the result and absurd about the
+        // run.
+        bool extractedAnything = false;
+
         try
         {
             var progress = CreateProgressReporter(install);
@@ -794,6 +800,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                         _preferences.ExtractInternationalFiles, _preferences.InternationalLanguage,
                         progress, msg => AppendLog($"{tag} {msg}"), cts.Token));
 
+                    extractedAnything = true;
                     Log($"{tag} Extraction complete.");
                 }
                 else
@@ -819,7 +826,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             RefreshInstallState(install);
             install.Progress = 100;
-            install.StatusText = written == 0 && removed == 0 && install.IsExtracted
+            // "Up to date" only when the run genuinely found nothing to do. RefreshInstallState has
+            // already set the honest status otherwise, so leave it alone.
+            install.StatusText = !extractedAnything && written == 0 && removed == 0 && install.IsExtracted
                 ? "Up to date"
                 : install.StatusText;
         }
