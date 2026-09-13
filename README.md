@@ -35,6 +35,24 @@ then **Run anyway**, or read the source and build it yourself.
 Prefer to watch someone do it first? There is a
 **[YouTube installation and usage guide](https://youtu.be/dpQtSIhVfrc)**.
 
+---
+
+### If it saves you some loading screens
+
+D2R File Extractor is free and open source, and will stay that way — no paid
+version, no nag screens, nothing held back, and no feature waiting behind a
+payment.
+
+If it has earned a place on your machine, you can put something toward keeping
+it working after the next patch.
+
+[![Sponsor on GitHub](https://img.shields.io/badge/%E2%9D%A4%20%20Sponsor%20on%20GitHub-C8A951?style=for-the-badge&labelColor=4A3A10)](https://github.com/sponsors/levinium)
+
+Not at all expected. Starring the repo, or pointing someone else at it when they
+complain about load times, helps just as much.
+
+---
+
 ## Getting started
 
 ![Starting with no installations added](docs/screenshots/empty-state.png)
@@ -187,19 +205,17 @@ Press **Undo Extraction** and the extracted files are removed, empty folders
 pruned, and anything you put in that tree yourself left untouched. Then take
 `-direct -txt` back out of your launch options and D2R runs normally again.
 
-## Supporting it
+## The Support button
 
-D2R File Extractor is free and open source. There is no paid version and
-nothing is held back. If it has saved you some loading screens, you can put
-something toward keeping it working after the next patch:
-
-**[❤ Sponsor on GitHub](https://github.com/sponsors/levinium)**
-
-Release builds carry a matching **Support** button in the app, next to the
-version number; a build from a clean checkout does not. The destination is a
-build property, empty in this repository, and with nothing set the button does
-not render at all — so a fork ships no ask, and there is nothing to remember to
+Release builds carry a **Support** button in the app, between the version number
+and the gear; a build from a clean checkout does not. The destination is a build
+property, empty in this repository, and with nothing set the button does not
+render at all — so a fork ships no ask, and there is nothing to remember to
 strip out.
+
+A funding handle is not a secret; it exists to be given out. But it identifies a
+person, and a fork built from this source must not quietly solicit donations to
+whoever wrote the code.
 
 ## Building from source
 
