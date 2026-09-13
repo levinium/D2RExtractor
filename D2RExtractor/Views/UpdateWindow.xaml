@@ -1,0 +1,126 @@
+<Window x:Class="D2RExtractor.Views.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update"
+        Icon="/Resources/app.ico"
+        Width="520" SizeToContent="Height"
+        MinWidth="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#1A1A1A">
+
+    <!-- SizeToContent, because the release notes are there only when there are
+         any. A fixed height leaves most of the window empty on the "you are up
+         to date" answer, which is the one most people will ever see. -->
+
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="AccentBrush"   Color="#C8A951"/>  <!-- D2 gold -->
+        <SolidColorBrush x:Key="TextBrush"     Color="#E0E0E0"/>
+        <SolidColorBrush x:Key="MutedBrush"    Color="#888888"/>
+        <SolidColorBrush x:Key="SurfaceBrush"  Color="#252525"/>
+        <SolidColorBrush x:Key="Surface2Brush" Color="#2E2E2E"/>
+
+        <Style x:Key="BaseButtonStyle" TargetType="Button">
+            <Setter Property="Foreground"   Value="{StaticResource TextBrush}"/>
+            <Setter Property="Background"   Value="{StaticResource Surface2Brush}"/>
+            <Setter Property="BorderBrush"  Value="#444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"      Value="14,7"/>
+            <Setter Property="FontSize"     Value="12"/>
+            <Setter Property="Cursor"       Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#383838"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AccentButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background"  Value="#4A3A10"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground"  Value="{StaticResource AccentBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#5A4A18"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- Heading -->
+            <RowDefinition Height="Auto"/>   <!-- Subheading -->
+            <RowDefinition Height="Auto"/>   <!-- Release notes -->
+            <RowDefinition Height="Auto"/>   <!-- Progress -->
+            <RowDefinition Height="Auto"/>   <!-- Buttons -->
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="Heading" Grid.Row="0"
+                   FontSize="18" FontWeight="Bold"
+                   Foreground="{StaticResource AccentBrush}"
+                   TextWrapping="Wrap"/>
+
+        <TextBlock x:Name="Subheading" Grid.Row="1"
+                   FontSize="12" Foreground="{StaticResource TextBrush}"
+                   TextWrapping="Wrap" Margin="0,6,0,12"/>
+
+        <!-- Capped rather than free: release notes here run to a couple of
+             hundred words and a window taller than the screen helps nobody. -->
+        <Border x:Name="NotesPanel" Grid.Row="2"
+                BorderBrush="#333" BorderThickness="1" CornerRadius="4"
+                Background="{StaticResource SurfaceBrush}"
+                MaxHeight="280"
+                Margin="0,0,0,12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,10">
+                <TextBlock x:Name="NotesText"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="12" TextWrapping="Wrap"
+                           LineHeight="18"/>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel x:Name="ProgressPanel" Grid.Row="3" Visibility="Collapsed" Margin="0,0,0,12">
+            <ProgressBar x:Name="DownloadProgress"
+                         Height="8" Maximum="100"
+                         Foreground="{StaticResource AccentBrush}"
+                         Background="#333" BorderThickness="0"/>
+            <TextBlock x:Name="ProgressText"
+                       Foreground="{StaticResource MutedBrush}" FontSize="11"
+                       Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="PrimaryButton"
+                    Style="{StaticResource AccentButtonStyle}"
+                    MinWidth="130" Margin="0,0,8,0"
+                    Click="PrimaryButton_Click"/>
+            <Button x:Name="PageButton" Content="Open releases page"
+                    Style="{StaticResource BaseButtonStyle}"
+                    MinWidth="130" Margin="0,0,8,0"
+                    Click="PageButton_Click"/>
+            <Button x:Name="CloseButton" Content="Close"
+                    Style="{StaticResource BaseButtonStyle}"
+                    MinWidth="80"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

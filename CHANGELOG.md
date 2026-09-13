@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.8
+
+- **The app now checks for new releases and can install them itself.** When a newer version is published, a gold **Update to …** button appears at the top right. Pressing it shows the release notes and offers to install: the app downloads the release zip, checks it against the SHA-256 GitHub recorded for it, unpacks it, and hands the swap to a short script that waits for the app to close, replaces the files and starts it again.
+- **A failed update costs nothing but the download.** The existing installation is copied aside before anything is replaced and restored if the swap fails, so a half-overwritten folder is not a way to lose the app. A download that does not match its published checksum is discarded and nothing is touched. If the app is somewhere it cannot write — unzipped into Program Files, say — it says so instead of finding out after closing itself.
+- **The check never interrupts.** It runs in the background at most once a day, lights up the button and waits. Nothing is downloaded or installed without being asked for. **Check for Updates** in the gear menu asks on demand, and **Check for updates automatically** in Settings turns the daily look off entirely.
+- The check sends no identifier and nothing about the machine or its game installs — it is a plain request for a public file.
+- **Updating is refused while an extraction is running.** Swapping the executable out from under a run forty minutes into writing 45 GB would leave a half-extracted install and a manifest describing something else.
+- Release tags here carry the product name (`D2RExtractor_v1.1.7`), which the version comparison accounts for: it reads the version from after the last underscore rather than scanning for the first digit, since the first digit in that tag is the **2** in "D2R" and would otherwise be read as version 2.0.0 forever.
+- Added a **Support** button for anyone who would like to put something toward the app's upkeep. It is compiled in only for official release builds, so a build from a clean checkout has no ask in it at all.
+- Added `publish.ps1`, which builds the self-contained single-file release zip the releases page serves.
+
 ## 1.1.7
 
 - **Added incremental updates.** After a D2R patch you no longer need to undo and re-extract 45 GB. The **Extract** button becomes **Update** once an installation is extracted: it compares the game archives against the extracted files and writes only the ones that are new, changed, missing or damaged. Files the patch removed are deleted, so the extracted tree keeps matching the archives. A typical patch now writes a few hundred MB instead of tens of gigabytes.

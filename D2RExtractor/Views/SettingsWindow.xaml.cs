@@ -13,12 +13,19 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
 
-        // Clone so Cancel doesn't mutate the caller's copy.
+        // Clone so Cancel doesn't mutate the caller's copy. Every field has to be
+        // carried, including the ones this window never shows: the caller replaces
+        // its whole preferences object with this one on Save, so anything omitted
+        // here is not preserved — it is erased. LastUpdateCheckUtc left behind
+        // that way would reset the daily check to "never looked" every time
+        // someone opened Settings.
         Preferences = new AppPreferences
         {
             ExtractInternationalFiles = current.ExtractInternationalFiles,
             InternationalLanguage = current.InternationalLanguage,
-            VerifyFileContents = current.VerifyFileContents
+            VerifyFileContents = current.VerifyFileContents,
+            CheckForUpdatesAutomatically = current.CheckForUpdatesAutomatically,
+            LastUpdateCheckUtc = current.LastUpdateCheckUtc
         };
 
         // Populate language dropdown.
@@ -28,6 +35,7 @@ public partial class SettingsWindow : Window
         // Set initial selections.
         InternationalCheckBox.IsChecked = current.ExtractInternationalFiles;
         VerifyContentsCheckBox.IsChecked = current.VerifyFileContents;
+        CheckForUpdatesCheckBox.IsChecked = current.CheckForUpdatesAutomatically;
 
         int langIdx = current.InternationalLanguage != null
             ? System.Array.FindIndex(AppPreferences.AvailableLanguages, l => l.Code == current.InternationalLanguage)
@@ -51,6 +59,7 @@ public partial class SettingsWindow : Window
     {
         Preferences.ExtractInternationalFiles = InternationalCheckBox.IsChecked == true;
         Preferences.VerifyFileContents = VerifyContentsCheckBox.IsChecked == true;
+        Preferences.CheckForUpdatesAutomatically = CheckForUpdatesCheckBox.IsChecked == true;
 
         if (Preferences.ExtractInternationalFiles && LanguageComboBox.SelectedIndex >= 0)
             Preferences.InternationalLanguage = AppPreferences.AvailableLanguages[LanguageComboBox.SelectedIndex].Code;

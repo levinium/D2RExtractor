@@ -117,6 +117,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         InstallationsList.ItemsSource = _installations;
         _installations.CollectionChanged += OnInstallationsChanged;
         LoadInstallations();
+
+        // After the window is up and the installations are loaded, so a slow or
+        // hanging network cannot delay either.
+        CheckForUpdatesInBackground();
     }
 
     // -----------------------------------------------------------------------
@@ -828,6 +832,114 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (Services.SponsorLink.Template is not { } template) return;
 
         new Views.SponsorWindow(template) { Owner = this }.ShowDialog();
+    }
+
+    // -----------------------------------------------------------------------
+    // Updates
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The last thing a check concluded, so pressing the notice does not have to
+    /// ask again.
+    /// </summary>
+    private Services.Updates.UpdateVerdict? _lastVerdict;
+
+    /// <summary>
+    /// Looks for a newer release in the background, at most once a day, and says
+    /// nothing unless it finds one.
+    /// </summary>
+    /// <remarks>
+    /// Fire-and-forget on purpose. Nothing waits on the answer, a failure is
+    /// indistinguishable from "no update" to the user, and the app's real work is
+    /// writing tens of gigabytes — which must not be delayed, or interrupted, by
+    /// a version check.
+    /// </remarks>
+    private async void CheckForUpdatesInBackground()
+    {
+        if (!Services.UpdateService.IsAvailable) return;
+        if (!_preferences.CheckForUpdatesAutomatically) return;
+
+        if (!Services.Updates.UpdateSchedule.IsDue(_preferences.LastUpdateCheckUtc, DateTimeOffset.UtcNow))
+            return;
+
+        var verdict = await new Services.UpdateService().CheckAsync();
+
+        _lastVerdict = verdict;
+
+        // Only a completed check resets the clock. Recording the attempt when
+        // the machine was offline would mean a laptop opened briefly each day
+        // never checks at all.
+        if (verdict.Outcome != Services.Updates.UpdateOutcome.Unknown)
+        {
+            _preferences.LastUpdateCheckUtc = DateTimeOffset.UtcNow;
+            Services.ManifestService.SavePreferences(_preferences);
+        }
+
+        if (!verdict.IsAvailable) return;
+
+        ShowUpdateNotice(verdict);
+        Log($"Version {verdict.Version} is available. Click 'Update to {verdict.Version}' at the top right to install it.");
+    }
+
+    private void ShowUpdateNotice(Services.Updates.UpdateVerdict verdict)
+    {
+        UpdateNoticeText.Text = $"Update to {verdict.Version}";
+        UpdateNoticeButton.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateNoticeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastVerdict is not { } verdict) return;
+
+        new Views.UpdateWindow(verdict, () => IsAnyBusy) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>
+    /// Asks now, whatever the schedule says, and reports whatever it finds —
+    /// including "up to date", which is the answer someone who pressed this
+    /// specifically wanted to hear.
+    /// </summary>
+    private async void CheckForUpdatesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (!Services.UpdateService.IsAvailable)
+        {
+            MessageBox.Show(
+                this,
+                "This build was made without a release feed, so it cannot check for updates.",
+                "Check for Updates",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        CheckForUpdatesMenuItem.IsEnabled = false;
+        Log("Checking for updates...");
+
+        try
+        {
+            var verdict = await new Services.UpdateService().CheckAsync();
+            _lastVerdict = verdict;
+
+            switch (verdict.Outcome)
+            {
+                case Services.Updates.UpdateOutcome.Available:
+                    ShowUpdateNotice(verdict);
+                    Log($"Version {verdict.Version} is available.");
+                    break;
+                case Services.Updates.UpdateOutcome.UpToDate:
+                    Log($"Up to date (v{Services.UpdateService.CurrentVersion}).");
+                    break;
+                default:
+                    Log("Could not check for updates.");
+                    break;
+            }
+
+            new Views.UpdateWindow(verdict, () => IsAnyBusy) { Owner = this }.ShowDialog();
+        }
+        finally
+        {
+            CheckForUpdatesMenuItem.IsEnabled = true;
+        }
     }
 
     private void Log(string message) => AppendLog(message);

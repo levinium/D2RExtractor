@@ -26,6 +26,29 @@ public class AppPreferences
     /// </summary>
     public bool VerifyFileContents { get; set; }
 
+    /// <summary>
+    /// Whether to look for a newer release in the background, at most once a day.
+    ///
+    /// <para>
+    /// On by default, because the release people are usually waiting for is the one that makes
+    /// extraction work again after a game patch, and an update nobody hears about helps nobody.
+    /// The check sends no identifier and nothing about the machine or its game installs; it is a
+    /// plain request for a public file. Off, nothing is requested at all and the menu item is
+    /// still there for anyone who wants to ask.
+    /// </para>
+    /// </summary>
+    public bool CheckForUpdatesAutomatically { get; set; } = true;
+
+    /// <summary>
+    /// When the last automatic check completed, so the next one waits a day.
+    ///
+    /// <para>
+    /// Absent until the first check completes, and left untouched by a manual one — asking by hand
+    /// is not a reason to skip tomorrow's look.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? LastUpdateCheckUtc { get; set; }
+
     /// <summary>Available language codes and their display names.</summary>
     public static readonly (string Code, string Name)[] AvailableLanguages =
     [

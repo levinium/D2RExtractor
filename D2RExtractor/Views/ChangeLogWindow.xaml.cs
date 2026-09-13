@@ -21,6 +21,23 @@ public partial class ChangeLogWindow : Window
     {
         // Entries are listed newest-first. Each call to AddEntry appends to the panel.
 
+        AddEntry("1.1.8", [
+            "The app now checks for new releases and can install them itself. When a newer version is "
+                + "published, a gold 'Update to ...' button appears at the top right; pressing it shows what "
+                + "changed and offers to install. The download is checked against its published checksum "
+                + "before anything is replaced, and your existing installation is copied aside first and put "
+                + "back if the swap fails.",
+            "The check runs at most once a day, in the background, and never interrupts you — it lights up "
+                + "the button and waits. Nothing is downloaded or installed without you pressing it. You can "
+                + "also ask at any time from the gear menu, or turn the automatic check off in Settings.",
+            "The check sends no information about you, this machine or your game folders. It is a plain "
+                + "request for the public releases page.",
+            "Updating is refused while an extraction is running, so the executable cannot be swapped out "
+                + "from under a run that is partway through writing 45 GB.",
+            "Added a Support button for anyone who would like to put something toward the app's upkeep. It "
+                + "appears only in official release builds and never interrupts anything."
+        ]);
+
         AddEntry("1.1.7", [
             "Added incremental updates. After a D2R patch you no longer need to undo and re-extract "
                 + "45 GB. Once an installation is extracted the Extract button becomes Update: it compares "

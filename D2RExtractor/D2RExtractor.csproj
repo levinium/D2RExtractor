@@ -12,7 +12,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>D2RExtractor</AssemblyName>
     <RootNamespace>D2RExtractor</RootNamespace>
-    <Version>1.1.7</Version>
+    <Version>1.1.8</Version>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -42,6 +42,31 @@
 
   <ItemGroup Condition="'$(SponsorUrl)' != ''">
     <AssemblyMetadata Include="SponsorUrl" Value="$(SponsorUrl)" />
+  </ItemGroup>
+
+  <!--
+    Where the app looks to see whether a newer release exists.
+
+    Unlike SponsorUrl this DOES have a default, because the two properties are
+    solving opposite problems. A donate link left in by accident asks strangers
+    for money on the author's behalf, so it defaults to off. An update feed left
+    out by accident is silent in the other direction: the app simply never
+    mentions a release again, and nobody reports a notification that did not
+    arrive. Defaulting it on is the failure that gets noticed.
+
+    A fork should point this at its own releases or blank it, which is a one
+    line change either way:
+
+      <UpdateFeedUrl></UpdateFeedUrl>
+  -->
+  <PropertyGroup>
+    <UpdateFeedUrl Condition="'$(UpdateFeedUrl)' == ''">https://api.github.com/repos/levinium/D2RExtractor/releases/latest</UpdateFeedUrl>
+    <UpdatePageUrl Condition="'$(UpdatePageUrl)' == ''">https://github.com/levinium/D2RExtractor/releases/latest</UpdatePageUrl>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UpdateFeedUrl)' != ''">
+    <AssemblyMetadata Include="UpdateFeedUrl" Value="$(UpdateFeedUrl)" />
+    <AssemblyMetadata Include="UpdatePageUrl" Value="$(UpdatePageUrl)" />
   </ItemGroup>
 
   <ItemGroup>

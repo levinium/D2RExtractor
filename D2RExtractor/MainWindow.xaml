@@ -161,6 +161,35 @@
         <!-- Top-right: version label + gear icon — placed AFTER content so it has higher Z-order
              and receives mouse events even though both share the same Grid cell. -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+            <!-- A notice, not an interruption. The background check never opens
+                 anything on its own: it lights this up and waits to be pressed.
+                 Someone who came here to extract 45 GB should not have a modal
+                 dialog in front of them before they have clicked anything. -->
+            <Button x:Name="UpdateNoticeButton"
+                    Visibility="Collapsed"
+                    Padding="8,2" Margin="0,0,8,0" Cursor="Hand"
+                    ToolTip="A newer version is available"
+                    AutomationProperties.Name="Update available"
+                    Click="UpdateNoticeButton_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="UpdateNoticeText" FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+                        <Setter Property="Background"  Value="#4A3A10"/>
+                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="Foreground"  Value="{StaticResource AccentBrush}"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#5A4A18"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+
             <!-- Only where the build was published with somewhere to send anyone.
                  A clean checkout has no destination, so there is no button and
                  nothing for a fork to have to remember to remove. Furthest from
@@ -270,6 +299,17 @@
                         <MenuItem Header="📋  Change Log"
                                   Foreground="#E0E0E0"
                                   Click="ChangeLogMenuItem_Click"/>
+                        <MenuItem x:Name="CheckForUpdatesMenuItem"
+                                  Foreground="#E0E0E0"
+                                  Click="CheckForUpdatesMenuItem_Click">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Check for Updates" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
                     </ContextMenu>
                 </Button.ContextMenu>
             </Button>

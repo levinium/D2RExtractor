@@ -102,6 +102,28 @@ required**, unlike the CDN-download workaround older versions needed. Both
 readers produce an identical set of files, so it makes no difference to the
 game which one you started from.
 
+### It keeps itself up to date
+
+![An update offered, with the release notes](docs/screenshots/update-available.png)
+
+When a newer version is published, an **Update to …** button appears at the top
+right. Press it and the app shows you what changed, then installs it: it
+downloads the release, checks it against the checksum GitHub recorded when it
+was uploaded, unpacks it, replaces itself and restarts.
+
+A failed update costs nothing but the download. Your existing copy is set aside
+before anything is replaced and put back if the swap does not complete, and a
+download that does not match its checksum is discarded without touching
+anything. Updating is refused while an extraction is running, because swapping
+the app out partway through writing 45 GB would leave an extraction that no
+longer matches its own records.
+
+The check runs in the background at most once a day and never interrupts: it
+lights up the button and waits. Nothing is downloaded or installed until you
+press it. **Check for Updates** in the gear menu asks on demand, and the daily
+check can be turned off in Settings. It sends no identifier and nothing about
+your machine or your game folders — it is a plain request for a public file.
+
 ### It can extract other languages
 
 ![Settings](docs/screenshots/settings.png)
