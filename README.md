@@ -12,6 +12,7 @@ track of every file it wrote, and can undo the whole thing.
 [![Latest release](https://img.shields.io/github/v/release/levinium/D2RExtractor?label=download&color=C8A951)](https://github.com/levinium/D2RExtractor/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/levinium/D2RExtractor/total?color=C8A951)](https://github.com/levinium/D2RExtractor/releases)
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-555)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%99%A5-C8A951)](https://github.com/sponsors/levinium)
 
 ![D2R File Extractor](docs/screenshots/main-window.png)
 
@@ -124,6 +125,20 @@ Press **Undo Extraction** and the extracted files are removed, empty folders
 pruned, and anything you put in that tree yourself left untouched. Then take
 `-direct -txt` back out of your launch options and D2R runs normally again.
 
+## Supporting it
+
+D2R File Extractor is free and open source. There is no paid version and
+nothing is held back. If it has saved you some loading screens, you can put
+something toward keeping it working after the next patch:
+
+**[❤ Sponsor on GitHub](https://github.com/sponsors/levinium)**
+
+Release builds carry a matching **Support** button in the app, next to the
+version number; a build from a clean checkout does not. The destination is a
+build property, empty in this repository, and with nothing set the button does
+not render at all — so a fork ships no ask, and there is nothing to remember to
+strip out.
+
 ## Building from source
 
 Needs the .NET 8 SDK, and a copy of `CascLib.dll` placed in
@@ -134,6 +149,19 @@ dotnet build D2RExtractor.sln -c Release -p:Platform=x64
 ```
 
 Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
+
+To build the release zip — self-contained, single file, no .NET runtime needed
+on the target machine:
+
+```powershell
+.\publish.ps1
+.\publish.ps1 -SponsorUrl "https://github.com/sponsors/<user>?frequency=one-time&amount={amount}"
+```
+
+An `{amount}` placeholder turns the ask into a picker — $3 / $5 / $10 / $25 and
+Other, defaulting to $5 — with the chosen sum substituted into the link. Only
+worth including where the destination actually reads an amount out of the URL:
+offering a choice the payment page never hears about is worse than not asking.
 
 ## How it is put together
 

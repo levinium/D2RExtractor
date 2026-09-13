@@ -2,6 +2,9 @@
 [Bb]in/
 [Oo]bj/
 
+# Scratch csproj the WPF targets write beside the real one during a build
+*_wpftmp.csproj
+
 # Visual Studio / Rider / VS Code workspace state
 .vs/
 .idea/
@@ -12,6 +15,7 @@
 
 # Publish artifacts
 publish/
+dist/
 *.zip
 
 # Logs and crash dumps

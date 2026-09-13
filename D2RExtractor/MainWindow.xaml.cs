@@ -108,6 +108,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         DataContext = this;
         var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
         VersionLabel.Text = $"v{ver.Major}.{ver.Minor}.{ver.Build}";
+
+        // Absent unless this build was published with a destination. A build
+        // from a clean checkout has none, so a fork ships no ask at all.
+        if (Services.SponsorLink.IsOffered)
+            SponsorButton.Visibility = Visibility.Visible;
+
         InstallationsList.ItemsSource = _installations;
         _installations.CollectionChanged += OnInstallationsChanged;
         LoadInstallations();
@@ -815,6 +821,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ChangeLogMenuItem_Click(object sender, RoutedEventArgs e)
     {
         new Views.ChangeLogWindow { Owner = this }.ShowDialog();
+    }
+
+    private void SponsorButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (Services.SponsorLink.Template is not { } template) return;
+
+        new Views.SponsorWindow(template) { Owner = this }.ShowDialog();
     }
 
     private void Log(string message) => AppendLog(message);

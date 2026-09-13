@@ -20,6 +20,30 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
+  <!--
+    Where the app's "Support D2R File Extractor" button sends people.
+
+    This repository is meant to be published. A funding handle is not a secret —
+    it exists to be given out — but it identifies a person, and a fork built
+    from source must not quietly solicit donations to whoever wrote the code.
+    Left empty, as it is here, the app has no donate button at all: nothing to
+    strip out of a fork, and nothing to remember to remove.
+
+    Set it only when publishing a release:
+
+      .\publish.ps1 -SponsorUrl "https://github.com/sponsors/<user>"
+
+    An {amount} placeholder, if the destination understands one, turns the ask
+    into a picker; without it the ask is a single button. See SponsorLink.
+  -->
+  <PropertyGroup>
+    <SponsorUrl></SponsorUrl>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(SponsorUrl)' != ''">
+    <AssemblyMetadata Include="SponsorUrl" Value="$(SponsorUrl)" />
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Resources\app.ico" />
   </ItemGroup>

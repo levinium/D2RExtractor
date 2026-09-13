@@ -161,9 +161,36 @@
         <!-- Top-right: version label + gear icon — placed AFTER content so it has higher Z-order
              and receives mouse events even though both share the same Grid cell. -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+            <!-- Only where the build was published with somewhere to send anyone.
+                 A clean checkout has no destination, so there is no button and
+                 nothing for a fork to have to remember to remove. Furthest from
+                 the controls people actually came for, because an ask that sits
+                 in the way is an ask that gets resented. -->
+            <Button x:Name="SponsorButton"
+                    Padding="4,1" Cursor="Hand"
+                    Visibility="Collapsed"
+                    ToolTip="Support D2R File Extractor"
+                    AutomationProperties.Name="Support D2R File Extractor"
+                    Click="SponsorButton_Click">
+                <TextBlock Text="&#xEB51;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                           VerticalAlignment="Center"/>
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+                        <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
             <TextBlock x:Name="VersionLabel"
                        Foreground="{StaticResource MutedBrush}" FontSize="11"
-                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                       VerticalAlignment="Center" Margin="6,0,6,0"/>
             <!-- Gear button is intentionally NOT bound to IsGearEnabled so the Change Log
                  item remains accessible during extraction. Only the Settings MenuItem is
                  conditionally disabled (via PlacementTarget binding below). -->

@@ -1,0 +1,8 @@
+# Puts a "Sponsor" button at the top of the repository page.
+#
+# Separate from the button inside the app, and deliberately so: this one is a
+# property of the repository, while the app's is compiled in only when a build
+# is published with -SponsorUrl. A clean checkout builds an app with no ask in
+# it at all, so a fork cannot accidentally solicit donations on someone else's
+# behalf - whereas a fork of this file is a fork someone edited on purpose.
+github: levinium
