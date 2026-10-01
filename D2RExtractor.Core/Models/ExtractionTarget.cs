@@ -82,7 +82,8 @@ public class ExtractionTarget : INotifyPropertyChanged
 
     /// <summary>This target's manifest, which lives inside the folder it writes to.</summary>
     [JsonIgnore]
-    public string ManifestPath => Path.Combine(FolderPath, "data", ".extraction_manifest.json");
+    public string ManifestPath =>
+        Path.Combine(Services.PlatformPaths.ResolveDirectory(FolderPath, "data"), ".extraction_manifest.json");
 
     /// <summary>Label if there is one, otherwise the path.</summary>
     [JsonIgnore]
