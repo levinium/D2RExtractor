@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CascDiagnostic", "CascDiagn
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "D2RExtractor.Tests", "D2RExtractor.Tests\D2RExtractor.Tests.csproj", "{879D7FF2-E1ED-4752-AF89-BB9F1195261B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "D2RExtractor.Core", "D2RExtractor.Core\D2RExtractor.Core.csproj", "{CB1ED281-2AB2-4227-9317-1944548DB299}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -55,6 +57,18 @@ Global
 		{879D7FF2-E1ED-4752-AF89-BB9F1195261B}.Release|Any CPU.Build.0 = Release|x64
 		{879D7FF2-E1ED-4752-AF89-BB9F1195261B}.Release|x86.ActiveCfg = Release|x64
 		{879D7FF2-E1ED-4752-AF89-BB9F1195261B}.Release|x86.Build.0 = Release|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Debug|x64.ActiveCfg = Debug|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Debug|x64.Build.0 = Debug|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Debug|Any CPU.Build.0 = Debug|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Debug|x86.ActiveCfg = Debug|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Debug|x86.Build.0 = Debug|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Release|x64.ActiveCfg = Release|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Release|x64.Build.0 = Release|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Release|Any CPU.ActiveCfg = Release|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Release|Any CPU.Build.0 = Release|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Release|x86.ActiveCfg = Release|x64
+		{CB1ED281-2AB2-4227-9317-1944548DB299}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
