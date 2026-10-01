@@ -133,10 +133,18 @@ public static class SponsorLink
     /// </summary>
     private static string? ReadTemplate()
     {
-        var value = typeof(SponsorLink).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "SponsorUrl")?.Value;
+        // Entry assembly first - see the note in UpdateService. The SponsorUrl is stamped
+        // onto the published app, which since the split is no longer the assembly this class
+        // lives in.
+        foreach (var source in new[] { Assembly.GetEntryAssembly(), typeof(SponsorLink).Assembly })
+        {
+            var value = source?
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(a => a.Key == "SponsorUrl")?.Value;
 
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+        }
+
+        return null;
     }
 }
