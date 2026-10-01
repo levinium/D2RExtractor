@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "D2RExtractor.sln",
+    "projects": [
+      "D2RExtractor.Core\\D2RExtractor.Core.csproj",
+      "D2RExtractor.Cli\\D2RExtractor.Cli.csproj",
+      "D2RExtractor.Tests\\D2RExtractor.Tests.csproj",
+      "CascDiagnostic\\CascDiagnostic.csproj"
+    ]
+  }
+}
