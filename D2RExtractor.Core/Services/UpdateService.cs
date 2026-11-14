@@ -194,19 +194,41 @@ public sealed class UpdateService
 
     private static string ReadVersion()
     {
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        // The app's version, not Core's: GetExecutingAssembly() is whichever assembly this
+        // method was compiled into, which after the split is the library rather than the exe.
+        var version = (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly()).GetName().Version;
 
         return version is null
             ? "0.0.0"
             : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 
-    private static string? ReadMetadata(string key)
-    {
-        var value = typeof(UpdateService).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == key)?.Value;
+    private static string? ReadMetadata(string key) =>
+        ReadPublishMetadata(key, typeof(UpdateService).Assembly);
 
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    /// <summary>
+    /// Reads a value stamped onto the application at publish time.
+    ///
+    /// <para>
+    /// The entry assembly first, deliberately. These values describe the published
+    /// application, and since the split this class no longer lives in it: reading
+    /// <c>typeof(T).Assembly</c> would look at D2RExtractor.Core, find nothing, and fail in
+    /// the quiet direction the csproj warns about - the app simply never mentions a release
+    /// again, and nobody reports a notification that did not arrive. Falls back to the
+    /// declaring assembly so a test host, which has no metadata of its own, behaves as before.
+    /// </para>
+    /// </summary>
+    private static string? ReadPublishMetadata(string key, Assembly declaring)
+    {
+        foreach (var source in new[] { Assembly.GetEntryAssembly(), declaring })
+        {
+            var value = source?
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(a => a.Key == key)?.Value;
+
+            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+        }
+
+        return null;
     }
 }

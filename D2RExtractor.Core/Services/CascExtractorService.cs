@@ -349,7 +349,7 @@ public class CascExtractorService
                 ct.ThrowIfCancellationRequested();
 
                 string fsRelPath = StripCascNamespace(file.VirtualPath);
-                string destPath = Path.Combine(outputPath, fsRelPath);
+                string destPath = PlatformPaths.Combine(outputPath, fsRelPath);
                 string? destDir = Path.GetDirectoryName(destPath);
                 if (destDir != null)
                     Directory.CreateDirectory(destDir);
@@ -534,7 +534,7 @@ public class CascExtractorService
                 // Everything cheap says this file is fine. Verification is what catches the cases
                 // the cheap checks structurally cannot see — a file corrupted or edited outside the
                 // app, whose size never changed — so it runs whether or not a recorded key matched.
-                string? actual = TryHashFile(Path.Combine(outputPath, relPath));
+                string? actual = TryHashFile(PlatformPaths.Combine(outputPath, relPath));
                 verified++;
                 needsWrite = actual == null
                              || !string.Equals(actual, file.ContentKey, StringComparison.Ordinal);
@@ -608,7 +608,7 @@ public class CascExtractorService
         ManifestService.WriteAllEntries(target, manifest, finalEntries.Values);
 
         foreach (string prefix in TargetPrefixes)
-            RemoveEmptyDirectories(Path.Combine(outputPath, StripCascNamespace(prefix).TrimEnd('\\')), log);
+            RemoveEmptyDirectories(PlatformPaths.Combine(outputPath, StripCascNamespace(prefix).TrimEnd('\\')), log);
 
         manifest.TotalBytesExtracted = finalEntries.Values.Sum(e => Math.Max(e.Size, 0));
         manifest.ExtractedAt = DateTime.UtcNow;
@@ -657,7 +657,7 @@ public class CascExtractorService
     {
         var result = new Dictionary<string, long>(220_000, StringComparer.OrdinalIgnoreCase);
 
-        string dataDir = Path.Combine(outputPath, "data");
+        string dataDir = PlatformPaths.ResolveDirectory(outputPath, "data");
         if (!Directory.Exists(dataDir))
             return result;
 
@@ -682,7 +682,7 @@ public class CascExtractorService
             if (bookkeeping.Contains(fi.FullName))
                 continue;
 
-            result[Path.GetRelativePath(outputPath, fi.FullName)] = fi.Length;
+            result[PlatformPaths.ToCasc(Path.GetRelativePath(outputPath, fi.FullName))] = fi.Length;
         }
         sw.Stop();
 
@@ -714,7 +714,7 @@ public class CascExtractorService
             ct.ThrowIfCancellationRequested();
             processed++;
 
-            string fullPath = Path.Combine(outputPath, relPath);
+            string fullPath = PlatformPaths.Combine(outputPath, relPath);
             if (File.Exists(fullPath))
             {
                 try
@@ -801,7 +801,7 @@ public class CascExtractorService
         {
             ct.ThrowIfCancellationRequested();
 
-            string fullPath = Path.Combine(outputPath, entry.RelPath);
+            string fullPath = PlatformPaths.Combine(outputPath, entry.RelPath);
             if (File.Exists(fullPath))
             {
                 try { File.Delete(fullPath); }
@@ -830,11 +830,11 @@ public class CascExtractorService
         foreach (string prefix in TargetPrefixes)
         {
             string fsPrefix = StripCascNamespace(prefix);
-            string dir = Path.Combine(outputPath, fsPrefix.TrimEnd('\\'));
+            string dir = PlatformPaths.Combine(outputPath, fsPrefix.TrimEnd('\\'));
             RemoveEmptyDirectories(dir, log);
         }
         // Also clean up any old-style locales\ directory from pre-v1.1.4 extractions.
-        string oldLocalesDir = Path.Combine(outputPath, "locales");
+        string oldLocalesDir = PlatformPaths.ResolveDirectory(outputPath, "locales");
         RemoveEmptyDirectories(oldLocalesDir, log);
 
         ManifestService.DeleteManifest(target);
@@ -934,7 +934,7 @@ public class CascExtractorService
             return null;
 
         // Classic CASC (Battle.net) stores index files under "Data\indices".
-        string indicesPath = Path.Combine(folderPath, "Data", "indices");
+        string indicesPath = Path.Combine(PlatformPaths.ResolveDirectory(folderPath, "Data"), "indices");
         if (!Directory.Exists(indicesPath))
             return "The selected folder does not appear to be a D2R installation. " +
                    "Expected a 'Data\\indices' subfolder (Battle.net) or a 'data\\.build.config' (Steam). " +
@@ -951,7 +951,8 @@ public class CascExtractorService
     {
         try
         {
-            var drive = new DriveInfo(Path.GetPathRoot(folderPath)!);
+            var drive = FindVolume(folderPath);
+            if (drive == null) return null;
             if (drive.AvailableFreeSpace < requiredBytes)
             {
                 return $"Low disk space warning: only {FormatBytes(drive.AvailableFreeSpace)} free on " +
@@ -960,6 +961,34 @@ public class CascExtractorService
         }
         catch { /* Ignore drive-info failures */ }
         return null;
+    }
+
+    /// <summary>
+    /// Finds the filesystem that actually holds <paramref name="folderPath"/>, so the free-space
+    /// figure describes the disk being written to.
+    ///
+    /// <para>
+    /// <see cref="Path.GetPathRoot(string)"/> gives the real volume on Windows but always returns
+    /// "/" on Unix, whatever filesystem the path is on. On an image-based distro (Bazzite,
+    /// SteamOS) "/" is a read-only image reporting zero bytes free, so every extraction warned;
+    /// on any ordinary setup with games on a second drive it simply measured the wrong disk.
+    /// </para>
+    ///
+    /// <para>
+    /// Matching the path against <see cref="DriveInfo.GetDrives"/> mount points does not fix it
+    /// either, because <see cref="Path.GetFullPath(string)"/> does not resolve symlinks: where
+    /// /home is a link to /var/home, no mount point is a string prefix of the path except "/".
+    /// Handing the path itself to <see cref="DriveInfo"/> sidesteps the question - on Unix it
+    /// queries statvfs on whatever path it is given, which reports the containing filesystem.
+    /// </para>
+    /// </summary>
+    internal static DriveInfo? FindVolume(string folderPath)
+    {
+        string full = Path.GetFullPath(folderPath);
+
+        return OperatingSystem.IsWindows()
+            ? new DriveInfo(Path.GetPathRoot(full)!)
+            : new DriveInfo(full);
     }
 
     /// <summary>

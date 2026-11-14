@@ -16,20 +16,47 @@ namespace D2RExtractor.Native;
 ///     (extract CascLib.dll from the CascViewer zip)
 ///   - CascLib GitHub releases: https://github.com/ladislav-zezula/CascLib
 ///
-/// This wrapper targets modern CascLib builds (2.x+) using CASC_MAX_PATH = 1024.
-/// If you are using an older build, adjust CASC_MAX_PATH below and recompile.
+/// On Windows this binds to CascLib.dll; elsewhere to libcasc.so, resolved at runtime (see
+/// the DllImportResolver in the static constructor). The struct layout differs between the
+/// two - see FindDataLayout.
 /// </summary>
 internal static class CascLib
 {
     private const string DllName = "CascLib.dll";
 
     /// <summary>
-    /// Maximum path length used in CASC_FIND_DATA.szFileName.
-    /// Current CascLib (3.x) uses the standard Windows MAX_PATH (260).
-    /// Older builds (pre-3.x) used a custom CASC_MAX_PATH of 1024 — if you see garbled
-    /// file names with an old DLL, switch this back to 1024.
+    /// SONAME of the CascLib shared library off Windows. CascLib's CMake build produces
+    /// libcasc.so; it is not a "CascLib.dll" by any spelling, which is why the resolver below
+    /// is needed at all.
     /// </summary>
-    internal const int CASC_MAX_PATH = 260; // Windows MAX_PATH
+    private const string UnixLibraryName = "libcasc.so";
+
+    /// <summary>
+    /// Points the <c>CascLib.dll</c> imports at the platform's real library.
+    ///
+    /// <para>
+    /// The [DllImport] name is left as "CascLib.dll" so the declarations still read against
+    /// CascLib's own documentation and nothing changes on Windows. But .NET's probing for that
+    /// name only ever tries CascLib.dll, libCascLib.dll, CascLib.dll.so and libCascLib.dll.so -
+    /// never libcasc.so - so off Windows it has to be redirected explicitly.
+    /// </para>
+    /// </summary>
+    static CascLib()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        NativeLibrary.SetDllImportResolver(typeof(CascLib).Assembly, (name, assembly, searchPath) =>
+            name == DllName && NativeLibrary.TryLoad(UnixLibraryName, assembly, searchPath, out IntPtr handle)
+                ? handle
+                : IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Upper bound on CASC_FIND_DATA.szFileName across platforms. This is NOT a build-time
+    /// choice: CascLib 3.x uses the Windows MAX_PATH (260) on Windows and 1024 elsewhere, so the
+    /// value in effect is selected at runtime by FindDataLayout.MaxPath.
+    /// </summary>
+    internal const int CASC_MAX_PATH = 1024;
 
     /// <summary>Size of a CASC content/encoding key (an MD5 digest).</summary>
     internal const int MD5_HASH_SIZE = 16;
@@ -49,80 +76,56 @@ internal static class CascLib
     internal const uint CASC_FEATURE_ALLOW_DOWNLOAD = 0x00002000;
 
     /// <summary>
-    /// Data returned by CascFindFirstFile / CascFindNextFile.
-    /// Layout matches CASC_FIND_DATA in CascLib.h (3.x) for x64:
+    /// Runtime layout of CASC_FIND_DATA, which is <b>not</b> the same on every platform.
     ///
-    ///   Offset   Size  Field
-    ///      0      260  szFileName  (char[MAX_PATH])
-    ///    260       16  CKey        (BYTE[MD5_HASH_SIZE]) — MD5 of the *decoded* file content
-    ///    276       16  EKey        (BYTE[MD5_HASH_SIZE]) — MD5 of the encoded (BLTE) blob
-    ///    292        4  padding     (MSVC aligns ULONGLONG to 8 bytes: 292→296)
-    ///    296        8  TagBitMask  (ULONGLONG)
-    ///    304        8  FileSize    (ULONGLONG)
-    ///    312        8  szPlainName (char*)
-    ///    320        4  dwFileDataId
-    ///    324        4  dwLocaleFlags
-    ///    328        4  dwContentFlags
-    ///    332        4  dwSpanCount
-    ///    336        4  bFileAvailable (DWORD bit-field; non-zero = available)
-    ///    340        4  NameType    (CASC_NAME_TYPE enum)
-    ///   Total: 344 bytes
+    /// <para>
+    /// CascLib sizes szFileName with MAX_PATH. On Windows that is the SDK's 260; everywhere else
+    /// CascPort.h defines it as 1024. Same CascLib version, different struct - 344 bytes against
+    /// 1104. And because 260 is not 8-aligned while 1024 is, the padding before the first
+    /// ULONGLONG differs too, so the offsets are not a shared "base + constant" either.
+    /// </para>
     ///
-    /// Every field is a value type, which makes the struct fully *blittable*: the runtime
-    /// passes a pinned pointer to the managed struct instead of building a marshalling stub
-    /// and allocating an ANSI→UTF-16 string for every entry. That matters because the
-    /// enumeration visits millions of entries to keep ~150k matches (see EnumerateFiles).
-    ///
-    /// Two things are deliberate and must not be "simplified":
-    ///   • szFileName is a fixed byte buffer, not a [MarshalAs(ByValTStr)] string. Strings are
-    ///     only materialised for entries that actually match a target prefix.
-    ///   • CKey/EKey are fixed byte buffers, not byte[]. In an explicit-layout struct the CLR
-    ///     requires object-reference fields to be pointer-aligned; 260 % 8 == 4, so a byte[]
-    ///     at that offset compiles fine and then throws TypeLoadException at first use.
+    /// <para>
+    /// C# cannot vary <c>[FieldOffset]</c> at runtime, so the struct below is an opaque buffer
+    /// and every field is read through the offsets here. Values verified against
+    /// <c>offsetof()</c> from a C probe compiled against CascLib's own headers.
+    /// </para>
     /// </summary>
-    [StructLayout(LayoutKind.Explicit, Size = 344)]
+    private static class FindDataLayout
+    {
+        /// <summary>Allocation size: the larger of the two layouts, so CascLib can never
+        /// write past the end of our buffer whichever platform we are on.</summary>
+        internal const int BufferSize = 1104;
+
+        private static readonly bool Win = OperatingSystem.IsWindows();
+
+        //                                                      Windows   Unix
+        internal static readonly int MaxPath   = Win ?   260 :   1024;
+        internal static readonly int CKey      = Win ?   260 :   1024;
+        internal static readonly int FileSize  = Win ?   304 :   1064;
+        internal static readonly int PlainName = Win ?   312 :   1072;
+    }
+
+    /// <summary>
+    /// Data returned by CascFindFirstFile / CascFindNextFile.
+    ///
+    /// <para>
+    /// Deliberately opaque: the native layout is platform-dependent (see
+    /// <see cref="FindDataLayout"/>), so declaring fields here would bake in one platform's
+    /// offsets. Read through the accessors below instead.
+    /// </para>
+    ///
+    /// <para>
+    /// It stays a blittable fixed buffer rather than a marshalled struct because the runtime can
+    /// then pin it and pass a pointer directly, with no per-entry marshalling stub and no
+    /// ANSI-to-UTF-16 string allocation. The scan visits millions of entries to keep ~150k
+    /// matches, so nothing is materialised until a prefix actually hits.
+    /// </para>
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct CASC_FIND_DATA
     {
-        /// <summary>Full virtual path of the file (e.g. "data:data\global\..."), NUL-terminated ASCII.</summary>
-        [FieldOffset(0)]
-        public fixed byte szFileName[CASC_MAX_PATH];
-
-        /// <summary>Content key — the MD5 of the file's decoded content.</summary>
-        [FieldOffset(260)]
-        public fixed byte CKey[MD5_HASH_SIZE];
-
-        /// <summary>Encoding key — identifies the stored (BLTE-encoded) blob.</summary>
-        [FieldOffset(276)]
-        public fixed byte EKey[MD5_HASH_SIZE];
-
-        [FieldOffset(296)]
-        public ulong TagBitMask;
-
-        [FieldOffset(304)]
-        public ulong FileSize;
-
-        /// <summary>Pointer into szFileName at the start of the plain file name.</summary>
-        [FieldOffset(312)]
-        public IntPtr szPlainName;
-
-        [FieldOffset(320)]
-        public uint dwFileDataId;
-
-        [FieldOffset(324)]
-        public uint dwLocaleFlags;
-
-        [FieldOffset(328)]
-        public uint dwContentFlags;
-
-        [FieldOffset(332)]
-        public uint dwSpanCount;
-
-        /// <summary>Non-zero when the file is locally available in the CASC storage.</summary>
-        [FieldOffset(336)]
-        public uint bFileAvailable; // DWORD bit-field in native code — check != 0
-
-        [FieldOffset(340)]
-        public uint NameType;
+        public fixed byte Buffer[FindDataLayout.BufferSize];
     }
 
     /// <summary>
@@ -155,7 +158,7 @@ internal static class CascLib
     /// <returns>True on success.</returns>
     [DllImport(DllName, EntryPoint = "CascOpenStorage", CharSet = CharSet.Ansi,
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascOpenStorage(string szDataPath, uint dwLocaleMask, out IntPtr phStorage);
 
     /// <summary>Opens a CASC storage with extended parameters (CDN fallback, online mode, etc.).</summary>
@@ -175,7 +178,7 @@ internal static class CascLib
     /// <summary>Closes a CASC storage handle.</summary>
     [DllImport(DllName, EntryPoint = "CascCloseStorage",
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascCloseStorage(IntPtr hStorage);
 
     /// <summary>Begins enumeration of files in the CASC storage.</summary>
@@ -192,13 +195,13 @@ internal static class CascLib
     /// <summary>Continues enumeration started by CascFindFirstFile.</summary>
     [DllImport(DllName, EntryPoint = "CascFindNextFile",
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascFindNextFile(IntPtr hFind, out CASC_FIND_DATA pFindData);
 
     /// <summary>Closes a find handle returned by CascFindFirstFile.</summary>
     [DllImport(DllName, EntryPoint = "CascFindClose",
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascFindClose(IntPtr hFind);
 
     /// <summary>Opens a file within the CASC storage by its virtual path name.</summary>
@@ -209,7 +212,7 @@ internal static class CascLib
     /// <param name="phFile">Receives the file handle on success.</param>
     [DllImport(DllName, EntryPoint = "CascOpenFile", CharSet = CharSet.Ansi,
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascOpenFile(IntPtr hStorage, string szFileName,
         uint dwLocale, uint dwFlags, out IntPtr phFile);
 
@@ -228,13 +231,13 @@ internal static class CascLib
     /// <param name="pdwRead">Receives the number of bytes actually read.</param>
     [DllImport(DllName, EntryPoint = "CascReadFile",
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascReadFile(IntPtr hFile, byte[] lpBuffer, uint dwToRead, out uint pdwRead);
 
     /// <summary>Closes a file handle opened by CascOpenFile.</summary>
     [DllImport(DllName, EntryPoint = "CascCloseFile",
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     internal static extern bool CascCloseFile(IntPtr hFile);
 
     // CascGetStorageInfo — CASC_STORAGE_INFO_CLASS enum values
@@ -244,7 +247,7 @@ internal static class CascLib
     /// <summary>Queries information about an open CASC storage.</summary>
     [DllImport(DllName, EntryPoint = "CascGetStorageInfo",
         CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static extern bool CascGetStorageInfo(
         IntPtr hStorage, uint InfoClass, ref uint pvStorageInfo,
         uint cbStorageInfo, ref uint pcbLengthNeeded);
@@ -368,11 +371,27 @@ internal static class CascLib
         return args;
     }
 
-    /// <summary>Returns true if CascLib.dll exists next to the executable.</summary>
+    /// <summary>
+    /// Whether the native CascLib can actually be loaded.
+    ///
+    /// <para>
+    /// On Windows the DLL ships beside the executable, so a file check is the useful signal.
+    /// Elsewhere libcasc.so is an ordinary shared library found through the dynamic linker, so
+    /// ask the loader rather than guess at a path.
+    /// </para>
+    /// </summary>
     internal static bool IsDllPresent()
     {
-        string dllPath = Path.Combine(AppContext.BaseDirectory, DllName);
-        return File.Exists(dllPath);
+        if (OperatingSystem.IsWindows())
+            return File.Exists(Path.Combine(AppContext.BaseDirectory, DllName));
+
+        if (NativeLibrary.TryLoad(UnixLibraryName, out IntPtr handle))
+        {
+            NativeLibrary.Free(handle);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -401,10 +420,11 @@ internal static class CascLib
     /// <summary>Reads szFileName as a string, normalising forward slashes to backslashes.</summary>
     private static unsafe string ReadFileName(ref CASC_FIND_DATA d)
     {
-        fixed (byte* p = d.szFileName)
+        fixed (byte* p = d.Buffer)
         {
+            int max = FindDataLayout.MaxPath;
             int len = 0;
-            while (len < CASC_MAX_PATH && p[len] != 0) len++;
+            while (len < max && p[len] != 0) len++;
             return System.Text.Encoding.ASCII.GetString(p, len).Replace('/', '\\');
         }
     }
@@ -415,9 +435,9 @@ internal static class CascLib
     /// </summary>
     private static unsafe bool StartsWithAsciiIgnoreCase(ref CASC_FIND_DATA d, string prefix)
     {
-        fixed (byte* p = d.szFileName)
+        fixed (byte* p = d.Buffer)
         {
-            if (prefix.Length > CASC_MAX_PATH) return false;
+            if (prefix.Length > FindDataLayout.MaxPath) return false;
             for (int i = 0; i < prefix.Length; i++)
             {
                 byte b = p[i];
@@ -430,6 +450,13 @@ internal static class CascLib
         }
     }
 
+    /// <summary>Reads FileSize from its platform-dependent offset.</summary>
+    private static unsafe ulong ReadFileSize(ref CASC_FIND_DATA d)
+    {
+        fixed (byte* p = d.Buffer)
+            return *(ulong*)(p + FindDataLayout.FileSize);
+    }
+
     /// <summary>
     /// Copies the content key out as lower-case hex, or returns null if it is all zeroes.
     /// The copy is mandatory: <c>findData</c> is overwritten by the next CascFindNextFile call.
@@ -438,8 +465,9 @@ internal static class CascLib
     {
         Span<byte> key = stackalloc byte[MD5_HASH_SIZE];
         bool nonZero = false;
-        fixed (byte* c = d.CKey)
+        fixed (byte* b = d.Buffer)
         {
+            byte* c = b + FindDataLayout.CKey;
             for (int i = 0; i < MD5_HASH_SIZE; i++)
             {
                 key[i] = c[i];
@@ -461,14 +489,19 @@ internal static class CascLib
     /// </summary>
     private static unsafe bool LayoutLooksSane(ref CASC_FIND_DATA d)
     {
-        fixed (byte* p = d.szFileName)
+        fixed (byte* p = d.Buffer)
         {
-            long delta = (long)d.szPlainName - (long)p;
-            if (delta < 0 || delta >= CASC_MAX_PATH) return false;
+            int max = FindDataLayout.MaxPath;
+
+            // szPlainName points into szFileName, so with the right offsets the delta must land
+            // inside the buffer. A wrong platform layout puts it wildly out of range.
+            IntPtr plainName = *(IntPtr*)(p + FindDataLayout.PlainName);
+            long delta = (long)plainName - (long)p;
+            if (delta < 0 || delta >= max) return false;
 
             int len = 0;
-            while (len < CASC_MAX_PATH && p[len] != 0) len++;
-            return len > 0 && len < CASC_MAX_PATH;
+            while (len < max && p[len] != 0) len++;
+            return len > 0 && len < max;
         }
     }
 
@@ -582,7 +615,7 @@ internal static class CascLib
                 {
                     yield return new StorageEntry(
                         ReadFileName(ref findData),
-                        findData.FileSize,
+                        ReadFileSize(ref findData),
                         keysUsable ? ReadContentKeyHex(ref findData) : null);
                 }
 

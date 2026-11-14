@@ -70,6 +70,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\D2RExtractor.Core\D2RExtractor.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Resources\app.ico" />
   </ItemGroup>
 

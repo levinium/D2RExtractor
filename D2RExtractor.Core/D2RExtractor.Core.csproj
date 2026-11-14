@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>D2RExtractor.Core</AssemblyName>
+    <!-- Namespaces stay D2RExtractor.{Models,Services,Native} so nothing else has to change. -->
+    <RootNamespace>D2RExtractor</RootNamespace>
+    <Version>1.1.8</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!--
+    Before the split these types shared an assembly with the front-end, so its calls into
+    internal members (CascLib.IsDllPresent) compiled fine. Extracting Core makes that an
+    assembly boundary; friend access keeps the front-ends unchanged rather than widening
+    the native interop surface to public.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="D2RExtractor" />
+    <InternalsVisibleTo Include="D2RExtractor.Cli" />
+    <InternalsVisibleTo Include="D2RExtractor.Tests" />
+  </ItemGroup>
+
+</Project>

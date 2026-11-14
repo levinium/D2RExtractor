@@ -15,6 +15,21 @@ namespace D2RExtractor.Models;
 public static class DestinationPaths
 {
     /// <summary>
+    /// How two paths are compared for equality.
+    ///
+    /// <para>
+    /// Windows and macOS resolve paths case-insensitively; Linux does not, so there
+    /// <c>/games/D2R</c> and <c>/games/d2r</c> are two folders rather than one. Comparing
+    /// case-insensitively everywhere would call them the same and refuse the second as an
+    /// overlap, turning a legitimate pair of destinations into an error. The mistake is in the
+    /// safe direction - case-insensitive matching finds more overlaps, never fewer, so no
+    /// extraction is ever at risk of being deleted by it - but it is still wrong.
+    /// </para>
+    /// </summary>
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+    /// <summary>
     /// A path in the one form comparisons can use: absolute, no trailing separator.
     /// Returns null for anything that cannot be resolved.
     /// </summary>
@@ -40,7 +55,7 @@ public static class DestinationPaths
         string? right = Normalize(b);
 
         return left is not null && right is not null
-            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(left, right, PathComparison);
     }
 
     /// <summary>
@@ -58,7 +73,7 @@ public static class DestinationPaths
 
         if (child is null || parent is null) return false;
 
-        return child.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return child.StartsWith(parent + Path.DirectorySeparatorChar, PathComparison);
     }
 
     /// <summary>

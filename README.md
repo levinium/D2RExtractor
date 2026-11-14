@@ -124,6 +124,42 @@ required**, unlike the CDN-download workaround older versions needed. Both
 readers produce an identical set of files, so it makes no difference to the
 game which one you started from.
 
+### It runs on Linux too
+
+There is no GUI on Linux — WPF only exists on Windows — so the front-end there is
+`d2rextractor`, a command-line tool sharing the same engine and the same
+`settings.json`. D2R under Proton or Wine is just a folder as far as the
+extractor is concerned; point it at the one inside the prefix.
+
+```
+d2rextractor add "~/.local/share/Steam/steamapps/common/Diablo II Resurrected"
+d2rextractor extract
+d2rextractor update --verify        # after a game patch
+```
+
+`add` / `list` / `forget` manage installations, `status` / `extract` / `update` /
+`undo` do the work, and every operation runs over each enabled destination. A
+target is an index from `list` or a folder path, and can be left out when only
+one installation is configured.
+
+**Steam installs need nothing extra** — the static-container reader is plain
+managed code. **Battle.net installs need CascLib as `libcasc.so`** on the library
+path. No distribution packages it, so build it once:
+
+```
+git clone https://github.com/ladislav-zezula/CascLib.git
+cmake -S CascLib -B CascLib/build -DCMAKE_BUILD_TYPE=Release \
+      -DCASC_BUILD_SHARED_LIB=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build CascLib/build -j"$(nproc)"
+sudo cmake --install CascLib/build && sudo ldconfig
+```
+
+`-DCMAKE_POLICY_VERSION_MINIMUM=3.5` is needed with CMake 4.x, which dropped
+support for the `cmake_minimum_required(VERSION 3.2)` CascLib still declares. If
+the library installs somewhere off the default linker path — `/usr/local/lib64`
+on Fedora, say — add that directory under `/etc/ld.so.conf.d/` and re-run
+`ldconfig`.
+
 ### You can choose where it extracts to
 
 ![Destinations](docs/screenshots/destinations.png)
@@ -224,10 +260,20 @@ Needs the .NET 8 SDK, and a copy of `CascLib.dll` placed in
 
 ```powershell
 dotnet build D2RExtractor.sln -c Release -p:Platform=x64
-dotnet test  D2RExtractor.sln -c Release -p:Platform=x64   # 122 tests
+dotnet test  D2RExtractor.sln -c Release -p:Platform=x64   # 130 tests
 ```
 
 Output: `D2RExtractor\bin\x64\Release\net8.0-windows\D2RExtractor.exe`
+
+On Linux, build the solution filter rather than the solution — the WPF app
+targets `net8.0-windows` and cannot build there, which is expected:
+
+```
+dotnet build D2RExtractor.Linux.slnf -c Release
+dotnet test  D2RExtractor.Linux.slnf -c Release
+```
+
+Output: `D2RExtractor.Cli/bin/x64/Release/net8.0/D2RExtractor.Cli`
 
 The tests cover the parts that fail quietly rather than loudly: which files a
 destination considers its own and will therefore delete, whether two

@@ -130,7 +130,7 @@ public class D2RInstallation : INotifyPropertyChanged
     /// <summary>Manifest path of the default (game folder) destination. Kept for the status summary.</summary>
     [JsonIgnore]
     public string ManifestPath =>
-        Path.Combine(FolderPath, "data", ".extraction_manifest.json");
+        Path.Combine(Services.PlatformPaths.ResolveDirectory(FolderPath, "data"), ".extraction_manifest.json");
 
     /// <summary>True when the extraction manifest exists on disk and is marked complete.</summary>
     [JsonIgnore]

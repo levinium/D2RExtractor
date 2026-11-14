@@ -17,6 +17,17 @@ namespace D2RExtractor.Tests;
 public class DestinationPathsTests
 {
     /// <summary>
+    /// Test paths are written Windows-shaped because that is what the app's users mostly type.
+    /// On a platform without drive letters they are mapped onto an equivalent rooted path, so
+    /// the same cases exercise the same rules rather than silently becoming relative paths
+    /// resolved against the test runner's working directory.
+    /// </summary>
+    private static string Rooted(string windowsShaped) =>
+        OperatingSystem.IsWindows()
+            ? windowsShaped
+            : "/" + windowsShaped[3..].Replace('\\', '/');
+
+    /// <summary>
     /// The trap this whole class exists for. "C:\D2RMods" starts with "C:\D2R" as a string and is
     /// nothing to do with it as a folder, so a comparison that forgets the separator refuses a
     /// perfectly good destination and leaves the person with no way to add it.
@@ -37,11 +48,11 @@ public class DestinationPathsTests
     [InlineData(@"C:\D2R\data", @"C:\D2R")]
     public void AFolderInsideAnotherIsCaught(string child, string parent)
     {
-        DestinationPaths.IsUnder(child, parent).ShouldBeTrue();
+        DestinationPaths.IsUnder(Rooted(child), Rooted(parent)).ShouldBeTrue();
 
         // Both directions, because the caller does not know which of the two it is adding.
-        DestinationPaths.Overlap(child, parent).ShouldBeTrue();
-        DestinationPaths.Overlap(parent, child).ShouldBeTrue();
+        DestinationPaths.Overlap(Rooted(child), Rooted(parent)).ShouldBeTrue();
+        DestinationPaths.Overlap(Rooted(parent), Rooted(child)).ShouldBeTrue();
     }
 
     [Fact]
@@ -52,15 +63,14 @@ public class DestinationPathsTests
 
     [Theory]
     [InlineData(@"C:\D2R\", @"C:\D2R")]
-    [InlineData(@"c:\d2r", @"C:\D2R")]
     [InlineData(@"C:\D2R\mods\..", @"C:\D2R")]
     [InlineData(@"C:\D2R\.\", @"C:\D2R")]
     public void TheSameFolderSpelledDifferentlyIsStillTheSameFolder(string a, string b)
     {
-        DestinationPaths.AreSame(a, b).ShouldBeTrue();
+        DestinationPaths.AreSame(Rooted(a), Rooted(b)).ShouldBeTrue();
 
         // Adding a folder that is already a destination has to be refused too, not just nesting.
-        DestinationPaths.Overlap(a, b).ShouldBeTrue();
+        DestinationPaths.Overlap(Rooted(a), Rooted(b)).ShouldBeTrue();
     }
 
     [Theory]
@@ -99,7 +109,20 @@ public class DestinationPathsTests
     [Fact]
     public void NormalizeDropsTheTrailingSeparator()
     {
-        DestinationPaths.Normalize(@"C:\D2R\").ShouldBe(@"C:\D2R");
-        DestinationPaths.Normalize(@"C:\D2R").ShouldBe(@"C:\D2R");
+        DestinationPaths.Normalize(Rooted(@"C:\D2R\")).ShouldBe(Rooted(@"C:\D2R"));
+        DestinationPaths.Normalize(Rooted(@"C:\D2R")).ShouldBe(Rooted(@"C:\D2R"));
+    }
+
+    [Fact]
+    public void WhetherCaseAloneMakesADifferentFolderFollowsThePlatform()
+    {
+        // Not a quirk worth hiding behind a skip: it is the rule itself. Windows and macOS
+        // resolve paths case-insensitively, Linux does not, so one spelling names one folder
+        // on one platform and two on another - and the overlap check has to agree with the
+        // filesystem it is actually running on.
+        bool sameFolder = !OperatingSystem.IsLinux();
+
+        DestinationPaths.AreSame(Rooted(@"c:\d2r"), Rooted(@"C:\D2R")).ShouldBe(sameFolder);
+        DestinationPaths.Overlap(Rooted(@"c:\d2r"), Rooted(@"C:\D2R")).ShouldBe(sameFolder);
     }
 }

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Version>1.1.8</Version>
+    <AssemblyName>D2RExtractor.Cli</AssemblyName>
+    <RootNamespace>D2RExtractor.Cli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\D2RExtractor.Core\D2RExtractor.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Battle.net installs need the native CascLib beside the executable, the same way the WPF app
+    and CascDiagnostic bundle it. Windows only: elsewhere the loader resolves libcasc.so instead
+    (see the DllImportResolver in Native/CascLib.cs), and a Windows DLL in a Linux build would
+    only cause confusion.
+  -->
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <Content Include="..\D2RExtractor\Tools\CascLib.dll" Condition="Exists('..\D2RExtractor\Tools\CascLib.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>CascLib.dll</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>

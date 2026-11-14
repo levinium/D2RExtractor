@@ -1,7 +1,14 @@
 # Build every push and pull request.
 #
-# Windows only, because the app targets net8.0-windows: it uses WPF, which does
-# not build anywhere else.
+# Two jobs, because only half the code is Windows-only now. The WPF app still
+# targets net8.0-windows and builds nowhere else; D2RExtractor.Core, the CLI and
+# the tests are plain net8.0 and have to keep working on Linux, which is where
+# the CLI is the only front-end there is.
+#
+# The Linux job is not a duplicate of the Windows one. The mistakes it catches are
+# the ones a Windows build cannot see: a path joined with a backslash, a directory
+# found only because the filesystem ignored its casing, free space measured on the
+# wrong mount. All of those are invisible on Windows and fatal on Linux.
 #
 # The tests cover the parts that fail quietly: which files a destination owns and
 # will therefore delete, whether two destinations overlap, and whether a
@@ -18,7 +25,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  windows:
+    name: Windows (full solution)
     runs-on: windows-latest
 
     steps:
@@ -36,3 +44,25 @@ jobs:
 
       - name: Test
         run: dotnet test D2RExtractor.sln --no-build -c Release --verbosity normal
+
+  linux:
+    name: Linux (core, CLI, tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      # The solution filter, not the solution: a solution-wide build fails here on
+      # net8.0-windows, which is expected rather than a problem to fix.
+      - name: Restore
+        run: dotnet restore D2RExtractor.Linux.slnf
+
+      - name: Build
+        run: dotnet build D2RExtractor.Linux.slnf --no-restore -c Release
+
+      - name: Test
+        run: dotnet test D2RExtractor.Linux.slnf --no-build -c Release --verbosity normal

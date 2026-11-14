@@ -1,3 +1,4 @@
+using System.IO;
 using D2RExtractor.Models;
 using Shouldly;
 using Xunit;
@@ -15,7 +16,9 @@ namespace D2RExtractor.Tests;
 /// </summary>
 public class InstallationStateTests
 {
-    private const string Game = @"D:\Games\Diablo II Resurrected";
+    private static readonly string Game = OperatingSystem.IsWindows()
+        ? @"D:\Games\Diablo II Resurrected"
+        : "/games/Diablo II Resurrected";
 
     private static ExtractionTarget Target(string path, bool extracted, bool enabled = true)
     {
@@ -200,7 +203,7 @@ public class InstallationStateTests
     [Fact]
     public void TheGameFolderIsRecognisedWhateverItsSpelling()
     {
-        var install = Install(Target(Game + @"\", extracted: true));
+        var install = Install(Target(Game + Path.DirectorySeparatorChar, extracted: true));
 
         install.SkipsGameFolder.ShouldBeFalse();
     }
