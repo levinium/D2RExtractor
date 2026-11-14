@@ -982,7 +982,7 @@ public class CascExtractorService
     /// queries statvfs on whatever path it is given, which reports the containing filesystem.
     /// </para>
     /// </summary>
-    private static DriveInfo? FindVolume(string folderPath)
+    internal static DriveInfo? FindVolume(string folderPath)
     {
         string full = Path.GetFullPath(folderPath);
 

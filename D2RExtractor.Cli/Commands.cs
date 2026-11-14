@@ -115,7 +115,7 @@ internal static class Commands
             Console.WriteLine($"    next action : {planned.ToString().ToLowerInvariant()}");
         }
 
-        if (CascExtractorService.CheckDiskSpace(install.FolderPath) is { } warning)
+        foreach (string warning in DiskSpaceWarnings(install, prefs))
             Console.WriteLine($"  warning       : {warning}");
 
         return 0;
@@ -130,7 +130,7 @@ internal static class Commands
 
         var prefs = Preferences(cli);
 
-        if (CascExtractorService.CheckDiskSpace(install.FolderPath) is { } warning)
+        foreach (string warning in DiskSpaceWarnings(install, prefs))
         {
             Console.WriteLine(warning);
             if (!Confirm(cli, "Continue anyway?")) return 1;
@@ -144,6 +144,17 @@ internal static class Commands
         foreach (var target in install.ActiveTargets)
         {
             if (install.HasCustomTargets) Console.WriteLine($"-> {target.DisplayName}");
+
+            // A destination that already has a manifest is updated, never extracted afresh, as in
+            // the GUI. Extract resets the manifest before writing, so a cancelled re-extraction
+            // would leave it listing only the files written so far, and undo would strand the rest.
+            var existing = ManifestService.LoadManifest(target);
+            if (existing != null)
+            {
+                Console.WriteLine($"Already extracted at {target.DisplayName}; updating instead.");
+                RunUpdate(service, install, target, existing, prefs, cli, ct);
+                continue;
+            }
 
             using var progress = new ConsoleProgress();
             var manifest = service.Extract(install, target, prefs.ExtractInternationalFiles,
@@ -177,19 +188,61 @@ internal static class Commands
 
             any = true;
             if (install.HasCustomTargets) Console.WriteLine($"-> {target.DisplayName}");
-
-            using var progress = new ConsoleProgress();
-            var summary = service.UpdateExtraction(install, target, manifest,
-                prefs.ExtractInternationalFiles, prefs.InternationalLanguage,
-                cli.Verify || prefs.VerifyFileContents, progress, Log, ct);
-            progress.Dispose();
-
-            Console.WriteLine($"Update complete: {summary.FilesWritten:N0} written " +
-                              $"({ConsoleProgress.Bytes(summary.BytesWritten)}), " +
-                              $"{summary.FilesRemoved:N0} removed, {summary.FilesUnchanged:N0} unchanged.");
+            RunUpdate(service, install, target, manifest, prefs, cli, ct);
         }
 
         return any ? 0 : Fail("Nothing extracted yet for this installation. Run 'extract' first.");
+    }
+
+    private static void RunUpdate(CascExtractorService service, D2RInstallation install,
+        ExtractionTarget target, ExtractionManifest manifest, AppPreferences prefs,
+        CommandLine cli, CancellationToken ct)
+    {
+        using var progress = new ConsoleProgress();
+        var summary = service.UpdateExtraction(install, target, manifest,
+            prefs.ExtractInternationalFiles, prefs.InternationalLanguage,
+            cli.Verify || prefs.VerifyFileContents, progress, Log, ct);
+        progress.Dispose();
+
+        Console.WriteLine($"Update complete: {summary.FilesWritten:N0} written " +
+                          $"({ConsoleProgress.Bytes(summary.BytesWritten)}), " +
+                          $"{summary.FilesRemoved:N0} removed, {summary.FilesUnchanged:N0} unchanged.");
+    }
+
+    /// <summary>
+    /// Checks free space where the files will be written: each active destination, not the game
+    /// folder. Destinations on one filesystem share its free space, so their requirements are
+    /// summed per filesystem, as the GUI does per drive.
+    /// </summary>
+    private static IEnumerable<string> DiskSpaceWarnings(D2RInstallation install, AppPreferences prefs)
+    {
+        long perDestination = (prefs.ExtractInternationalFiles ? 50L : 48L) * 1024 * 1024 * 1024;
+
+        return install.ActiveTargets
+            .GroupBy(t => VolumeKey(t.FolderPath))
+            .Select(g => CascExtractorService.CheckDiskSpace(g.First().FolderPath, perDestination * g.Count()))
+            .OfType<string>();
+    }
+
+    /// <summary>
+    /// Identifies the filesystem holding a path. On Unix, DriveInfo built from a path keeps that
+    /// path as its name and exposes no device id, so two paths that report the same total and
+    /// free bytes are treated as one filesystem.
+    /// </summary>
+    private static string VolumeKey(string path)
+    {
+        try
+        {
+            var volume = CascExtractorService.FindVolume(path);
+            if (volume == null) return path;
+            return OperatingSystem.IsWindows()
+                ? volume.Name.ToUpperInvariant()
+                : $"{volume.TotalSize}:{volume.AvailableFreeSpace}";
+        }
+        catch
+        {
+            return path;
+        }
     }
 
     public static int Undo(CommandLine cli, CancellationToken ct)

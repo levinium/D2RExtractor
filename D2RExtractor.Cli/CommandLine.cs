@@ -1,3 +1,5 @@
+using D2RExtractor.Models;
+
 namespace D2RExtractor.Cli;
 
 /// <summary>
@@ -37,14 +39,14 @@ internal sealed class CommandLine
                 case "--verify": verify = true; break;
                 case "--no-international": noIntl = true; break;
                 case "--international":
-                    if (i + 1 >= args.Length)
-                        return new CommandLine { Command = command, Error = "--international needs a language code." };
-                    international = args[++i];
+                    international = Language(i + 1 < args.Length ? args[++i] : null, out string? error);
+                    if (error != null) return new CommandLine { Command = command, Error = error };
                     break;
                 default:
                     if (a.StartsWith("--international=", StringComparison.Ordinal))
                     {
-                        international = a["--international=".Length..];
+                        international = Language(a["--international=".Length..], out error);
+                        if (error != null) return new CommandLine { Command = command, Error = error };
                         break;
                     }
                     if (a.StartsWith('-'))
@@ -61,5 +63,28 @@ internal sealed class CommandLine
             Command = command, Target = target, Yes = yes,
             Verify = verify, International = international, NoInternational = noIntl,
         };
+    }
+
+    /// <summary>
+    /// Returns the canonical code (deDE) for a language given in any casing (dede), or an error.
+    /// Checking here stops a missing value from swallowing the next option, as in
+    /// <c>--international --verify</c>, and stops an unknown code from reaching an extraction.
+    /// </summary>
+    private static string? Language(string? value, out string? error)
+    {
+        foreach (var (code, _) in AppPreferences.AvailableLanguages)
+        {
+            if (string.Equals(code, value, StringComparison.OrdinalIgnoreCase))
+            {
+                error = null;
+                return code;
+            }
+        }
+
+        string known = string.Join(", ", AppPreferences.AvailableLanguages.Select(l => l.Code.ToLowerInvariant()));
+        error = string.IsNullOrEmpty(value) || value.StartsWith('-')
+            ? $"--international needs a language code: {known}."
+            : $"Unknown language '{value}'. Use one of: {known}.";
+        return null;
     }
 }
